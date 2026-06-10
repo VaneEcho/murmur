@@ -47,6 +47,12 @@
     <label>模型名称</label>
     <input type="text" name="llm_model" value="{{ cfg.llm_model }}" placeholder="gpt-4o-mini">
 
+    <div class="section-title">日记设置</div>
+    <label>日记标签（用于区分日记和普通笔记）</label>
+    <input type="text" name="diary_tag" value="{{ cfg.diary_tag }}" placeholder="日记">
+    <label>常用词表（人名、地名等，一行一个，AI 会校正语音输入的同音错字）</label>
+    <textarea name="glossary" style="min-height: 100px;" placeholder="张三&#10;星巴克">{{ cfg.glossary }}</textarea>
+
     <div class="section-title">整理提示词</div>
     <p class="hint" style="margin-top:0;margin-bottom:10px;">可用变量：<code>{content}</code> 原始内容，<code>{date}</code> 日期</p>
     <textarea name="prompt">{{ cfg.prompt }}</textarea>

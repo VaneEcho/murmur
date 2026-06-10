@@ -18,6 +18,8 @@ DEFAULT_SETTINGS = {
     "llm_api_key": "",
     "llm_model": "gpt-4o-mini",
     "prompt": DEFAULT_PROMPT,
+    "diary_tag": "日记",
+    "glossary": "",
 }
 
 
