@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Murmur</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8f9fa; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 24px 16px; }
+  h1 { font-size: 1.5rem; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; }
+  .sub { color: #888; font-size: 0.9rem; margin-bottom: 24px; }
+  .card { background: white; border-radius: 16px; padding: 20px; width: 100%; max-width: 520px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+  label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 6px; }
+  input[type="date"] { width: 100%; padding: 10px 12px; border: 1px solid #e0e0e0; border-radius: 10px; font-size: 1rem; margin-bottom: 14px; outline: none; }
+  input[type="date"]:focus { border-color: #4f8ef7; }
+  textarea { width: 100%; padding: 12px; border: 1px solid #e0e0e0; border-radius: 10px; font-size: 1rem; resize: vertical; min-height: 160px; outline: none; line-height: 1.6; }
+  textarea:focus { border-color: #4f8ef7; }
+  button { width: 100%; margin-top: 14px; padding: 14px; background: #4f8ef7; color: white; border: none; border-radius: 12px; font-size: 1.05rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+  button:hover { background: #3a7ae0; }
+  button:disabled { background: #aac6fb; cursor: default; }
+  #result { margin-top: 16px; padding: 14px; border-radius: 12px; font-size: 0.95rem; line-height: 1.6; display: none; }
+  #result.success { background: #edf7f0; color: #2e7d52; border: 1px solid #b7e4c7; }
+  #result.error { background: #fff0f0; color: #c0392b; border: 1px solid #f5c6cb; }
+  .nav { width: 100%; max-width: 520px; text-align: right; margin-bottom: 12px; }
+  .nav a { color: #888; font-size: 0.85rem; text-decoration: none; }
+  .nav a:hover { color: #4f8ef7; }
+</style>
+</head>
+<body>
+<h1>Murmur</h1>
+<p class="sub">今天想记录什么？</p>
+<div class="nav"><a href="/settings">⚙ 设置</a></div>
+<div class="card">
+  <label for="date">日期</label>
+  <input type="date" id="date" value="{{ today }}">
+  <label for="content">内容（语音输入或手动输入）</label>
+  <textarea id="content" placeholder="说说今天发生了什么……"></textarea>
+  <button id="btn" onclick="submit()">整理并保存</button>
+  <div id="result"></div>
+</div>
+<script>
+async function submit() {
+  const content = document.getElementById('content').value.trim();
+  const date = document.getElementById('date').value;
+  const btn = document.getElementById('btn');
+  const result = document.getElementById('result');
+  if (!content) { showResult('error', '请先输入内容'); return; }
+  btn.disabled = true;
+  btn.textContent = '处理中…';
+  result.style.display = 'none';
+  try {
+    const resp = await fetch('/api/process', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, date }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      showResult('success', '✓ 已保存到 Memos\n\n' + data.polished);
+      document.getElementById('content').value = '';
+    } else {
+      showResult('error', data.error || '未知错误');
+    }
+  } catch (e) {
+    showResult('error', '请求失败：' + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = '整理并保存';
+}
+
+function showResult(type, msg) {
+  const el = document.getElementById('result');
+  el.className = type;
+  el.style.display = 'block';
+  el.style.whiteSpace = 'pre-wrap';
+  el.textContent = msg;
+}
+</script>
+</body>
+</html>

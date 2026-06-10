@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设置 — Murmur</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8f9fa; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 24px 16px; }
+  h1 { font-size: 1.5rem; font-weight: 600; color: #1a1a1a; margin-bottom: 24px; }
+  .card { background: white; border-radius: 16px; padding: 20px; width: 100%; max-width: 520px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+  .section-title { font-size: 0.8rem; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 12px; }
+  .section-title:first-child { margin-top: 0; }
+  label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 5px; }
+  input[type="text"], input[type="url"], input[type="password"] {
+    width: 100%; padding: 10px 12px; border: 1px solid #e0e0e0; border-radius: 10px;
+    font-size: 0.95rem; margin-bottom: 14px; outline: none;
+  }
+  input:focus { border-color: #4f8ef7; }
+  textarea { width: 100%; padding: 12px; border: 1px solid #e0e0e0; border-radius: 10px; font-size: 0.9rem; resize: vertical; min-height: 200px; outline: none; line-height: 1.6; font-family: monospace; margin-bottom: 14px; }
+  textarea:focus { border-color: #4f8ef7; }
+  .hint { font-size: 0.78rem; color: #aaa; margin-top: -10px; margin-bottom: 14px; }
+  button { width: 100%; padding: 14px; background: #4f8ef7; color: white; border: none; border-radius: 12px; font-size: 1.05rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+  button:hover { background: #3a7ae0; }
+  .toast { margin-top: 14px; padding: 12px 16px; border-radius: 10px; background: #edf7f0; color: #2e7d52; border: 1px solid #b7e4c7; font-size: 0.9rem; display: {% if saved %}block{% else %}none{% endif %}; }
+  .nav { width: 100%; max-width: 520px; text-align: left; margin-bottom: 12px; }
+  .nav a { color: #888; font-size: 0.85rem; text-decoration: none; }
+  .nav a:hover { color: #4f8ef7; }
+</style>
+</head>
+<body>
+<h1>设置</h1>
+<div class="nav"><a href="/">← 返回</a></div>
+<div class="card">
+  <form method="post" action="/settings">
+    <div class="section-title">Memos</div>
+    <label>Memos 地址</label>
+    <input type="url" name="memos_url" value="{{ cfg.memos_url }}" placeholder="https://your-memos.example.com">
+    <label>API Token</label>
+    <input type="password" name="memos_token" value="{{ cfg.memos_token }}" placeholder="eyJhbGci...">
+
+    <div class="section-title">大语言模型</div>
+    <label>API 地址（兼容 OpenAI 格式）</label>
+    <input type="url" name="llm_url" value="{{ cfg.llm_url }}" placeholder="https://api.openai.com/v1">
+    <label>API Key</label>
+    <input type="password" name="llm_api_key" value="{{ cfg.llm_api_key }}" placeholder="sk-...">
+    <label>模型名称</label>
+    <input type="text" name="llm_model" value="{{ cfg.llm_model }}" placeholder="gpt-4o-mini">
+
+    <div class="section-title">整理提示词</div>
+    <p class="hint" style="margin-top:0;margin-bottom:10px;">可用变量：<code>{content}</code> 原始内容，<code>{date}</code> 日期</p>
+    <textarea name="prompt">{{ cfg.prompt }}</textarea>
+
+    <button type="submit">保存设置</button>
+    <div class="toast">✓ 设置已保存</div>
+  </form>
+</div>
+</body>
+</html>
