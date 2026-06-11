@@ -35,8 +35,36 @@ def init_db():
         conn.execute(
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"
         )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS drafts ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "content TEXT NOT NULL, date TEXT NOT NULL, "
+            "created TEXT DEFAULT CURRENT_TIMESTAMP)"
+        )
         for k, v in DEFAULT_SETTINGS.items():
             conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
+        conn.commit()
+
+
+def save_draft(content: str, date: str) -> int:
+    init_db()
+    with get_conn() as conn:
+        cur = conn.execute("INSERT INTO drafts (content, date) VALUES (?, ?)", (content, date))
+        conn.commit()
+        return cur.lastrowid
+
+
+def list_drafts() -> list:
+    init_db()
+    with get_conn() as conn:
+        rows = conn.execute("SELECT id, content, date, created FROM drafts ORDER BY id DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_draft(draft_id: int):
+    init_db()
+    with get_conn() as conn:
+        conn.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
         conn.commit()
 
 

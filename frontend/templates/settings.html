@@ -22,6 +22,9 @@
   .hint { font-size: 0.78rem; color: #aaa; margin-top: -10px; margin-bottom: 14px; }
   button { width: 100%; padding: 14px; background: #4f8ef7; color: white; border: none; border-radius: 12px; font-size: 1.05rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
   button:hover { background: #3a7ae0; }
+  button.minor { background: white; color: #4f8ef7; border: 1px dashed #9bbdf5; font-size: 0.9rem; padding: 10px; margin-bottom: 14px; font-weight: 500; }
+  button.minor:hover { background: #f2f7ff; }
+  button:disabled { opacity: 0.6; cursor: default; }
   .toast { margin-top: 14px; padding: 12px 16px; border-radius: 10px; background: #edf7f0; color: #2e7d52; border: 1px solid #b7e4c7; font-size: 0.9rem; display: {% if saved %}block{% else %}none{% endif %}; }
   .nav { width: 100%; max-width: 520px; text-align: left; margin-bottom: 12px; }
   .nav a { color: #888; font-size: 0.85rem; text-decoration: none; }
@@ -51,7 +54,12 @@
     <label>日记标签（用于区分日记和普通笔记）</label>
     <input type="text" name="diary_tag" value="{{ cfg.diary_tag }}" placeholder="日记">
     <label>常用词表（人名、地名等，一行一个，AI 会校正语音输入的同音错字）</label>
-    <textarea name="glossary" style="min-height: 100px;" placeholder="张三&#10;星巴克">{{ cfg.glossary }}</textarea>
+    <textarea name="glossary" id="glossary" style="min-height: 100px;" placeholder="张三&#10;星巴克">{{ cfg.glossary }}</textarea>
+    <button type="button" class="minor" id="suggest-btn" onclick="suggestGlossary()">✨ 从历史日记提取候选词</button>
+    <div id="suggest-area" style="display:none; margin-bottom:14px;">
+      <p class="hint" style="margin:8px 0 6px;">点击词条加入词表：</p>
+      <div id="suggest-chips" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+    </div>
 
     <div class="section-title">整理提示词</div>
     <p class="hint" style="margin-top:0;margin-bottom:10px;">可用变量：<code>{content}</code> 原始内容，<code>{date}</code> 日期</p>
@@ -61,5 +69,36 @@
     <div class="toast">✓ 设置已保存</div>
   </form>
 </div>
+<script>
+async function suggestGlossary() {
+  const btn = document.getElementById('suggest-btn');
+  btn.disabled = true; btn.textContent = '提取中…';
+  try {
+    const resp = await fetch('/api/glossary/suggest', { method: 'POST' });
+    const data = await resp.json();
+    if (!data.ok) { alert(data.error || '提取失败'); }
+    else if (!data.terms.length) { alert('没有提取到新的候选词'); }
+    else {
+      const chips = document.getElementById('suggest-chips');
+      chips.innerHTML = '';
+      data.terms.forEach(t => {
+        const el = document.createElement('span');
+        el.textContent = '+ ' + t;
+        el.style.cssText = 'padding:6px 12px;border-radius:999px;background:#eef4ff;color:#3a6fd0;border:1px solid #c5d8f7;font-size:0.85rem;cursor:pointer;';
+        el.onclick = () => {
+          const g = document.getElementById('glossary');
+          if (!g.value.split('\n').map(s => s.trim()).includes(t)) {
+            g.value = (g.value.trim() ? g.value.trim() + '\n' : '') + t;
+          }
+          el.remove();
+        };
+        chips.appendChild(el);
+      });
+      document.getElementById('suggest-area').style.display = 'block';
+    }
+  } catch (e) { alert('请求失败：' + e.message); }
+  btn.disabled = false; btn.textContent = '✨ 从历史日记提取候选词';
+}
+</script>
 </body>
 </html>

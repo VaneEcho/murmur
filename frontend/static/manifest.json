@@ -1,0 +1,13 @@
+{
+  "name": "Murmur",
+  "short_name": "Murmur",
+  "description": "语音口述，AI 整理，存入 Memos",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8f9fa",
+  "theme_color": "#4f8ef7",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

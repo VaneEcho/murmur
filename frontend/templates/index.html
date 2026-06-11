@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#4f8ef7">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Murmur">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <title>Murmur</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -18,6 +23,9 @@
   button { width: 100%; margin-top: 14px; padding: 14px; background: #4f8ef7; color: white; border: none; border-radius: 12px; font-size: 1.05rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
   button:hover { background: #3a7ae0; }
   button:disabled { background: #aac6fb; cursor: default; }
+  button.secondary { background: white; color: #4f8ef7; border: 1px solid #4f8ef7; }
+  .row { display: flex; gap: 10px; }
+  .row button { margin-top: 14px; }
   #result { margin-top: 16px; padding: 14px; border-radius: 12px; font-size: 0.95rem; line-height: 1.6; display: none; white-space: pre-wrap; }
   #result.success { background: #edf7f0; color: #2e7d52; border: 1px solid #b7e4c7; }
   #result.error { background: #fff0f0; color: #c0392b; border: 1px solid #f5c6cb; }
@@ -29,12 +37,16 @@
   .chip { padding: 6px 12px; border-radius: 999px; background: #fff3e0; color: #b06a00; border: 1px solid #ffd699; font-size: 0.85rem; cursor: pointer; user-select: none; }
   .chip:hover { background: #ffe6c2; }
   .chip.active { background: #4f8ef7; color: white; border-color: #4f8ef7; }
+  #draftbar { width: 100%; max-width: 520px; margin-bottom: 12px; display: none; }
+  .draft { background: #fffbe8; border: 1px solid #f0e0a0; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.85rem; color: #7a6520; display: flex; align-items: center; gap: 8px; }
+  .draft .text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .draft .del { cursor: pointer; color: #bba; padding: 2px 6px; }
+  .draft .del:hover { color: #c0392b; }
   #conflict { margin-top: 16px; padding: 14px; border-radius: 12px; background: #fff8e6; border: 1px solid #ffe2a8; display: none; }
   #conflict p { font-size: 0.9rem; color: #8a6100; margin-bottom: 6px; }
-  #conflict .preview { font-size: 0.85rem; color: #666; background: #fffdf7; border-radius: 8px; padding: 10px; margin-bottom: 10px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; }
-  #conflict .actions { display: flex; gap: 10px; }
-  #conflict .actions button { margin-top: 0; padding: 10px; font-size: 0.95rem; }
-  #conflict .actions .secondary { background: white; color: #4f8ef7; border: 1px solid #4f8ef7; }
+  #conflict .preview { font-size: 0.85rem; color: #666; background: #fffdf7; border-radius: 8px; padding: 10px; margin-bottom: 4px; max-height: 120px; overflow-y: auto; white-space: pre-wrap; }
+  #preview-stage { display: none; }
+  .preview-tip { font-size: 0.82rem; color: #999; margin-bottom: 8px; }
 </style>
 </head>
 <body>
@@ -42,23 +54,39 @@
 <p class="sub">今天想记录什么？</p>
 <div class="nav"><a href="/settings">⚙ 设置</a></div>
 <div id="statusbar">正在读取记录状态…</div>
+<div id="draftbar"></div>
 <div class="card">
-  <label for="date">日期</label>
-  <input type="date" id="date" value="{{ today }}">
-  <label for="content">内容（语音输入或手动输入）</label>
-  <textarea id="content" placeholder="说说今天发生了什么……"></textarea>
-  <button id="btn" onclick="submit('auto')">整理并保存</button>
-  <div id="conflict">
-    <p id="conflict-msg"></p>
-    <div class="preview" id="conflict-preview"></div>
-    <div class="actions">
-      <button onclick="submit('merge')">合并整理</button>
-      <button class="secondary" onclick="submit('new')">另起一条</button>
+  <!-- 第一步：输入 -->
+  <div id="input-stage">
+    <label for="date">日期（口述中提到日期时以口述为准）</label>
+    <input type="date" id="date" value="{{ today }}">
+    <label for="content">内容（语音输入或手动输入）</label>
+    <textarea id="content" placeholder="说说今天发生了什么……"></textarea>
+    <button id="polish-btn" onclick="polish('auto')">AI 整理</button>
+    <div id="conflict">
+      <p id="conflict-msg"></p>
+      <div class="preview" id="conflict-preview"></div>
+      <div class="row">
+        <button onclick="polish('merge')">合并整理</button>
+        <button class="secondary" onclick="useAsNew()">另起一条</button>
+      </div>
+    </div>
+  </div>
+  <!-- 第二步：预览编辑 -->
+  <div id="preview-stage">
+    <label>确认或修改后保存（<span id="preview-date"></span>）</label>
+    <p class="preview-tip">可以直接在下面修改文字</p>
+    <textarea id="polished"></textarea>
+    <div class="row">
+      <button id="save-btn" onclick="save()">保存到 Memos</button>
+      <button class="secondary" onclick="backToEdit()">返回修改</button>
     </div>
   </div>
   <div id="result"></div>
 </div>
 <script>
+let state = { date: '', polished: '', memoName: null };
+
 async function loadStatus() {
   const bar = document.getElementById('statusbar');
   try {
@@ -76,9 +104,37 @@ async function loadStatus() {
       html += '　·　近两周无空缺 ✓';
     }
     bar.innerHTML = html;
-  } catch (e) {
-    bar.textContent = '';
-  }
+  } catch (e) { bar.textContent = ''; }
+}
+
+async function loadDrafts() {
+  const bar = document.getElementById('draftbar');
+  try {
+    const resp = await fetch('/api/drafts');
+    const data = await resp.json();
+    if (!data.ok || !data.drafts.length) { bar.style.display = 'none'; return; }
+    bar.innerHTML = data.drafts.map(d =>
+      `<div class="draft">
+        <span class="text" onclick="restoreDraft(${d.id}, this)" data-date="${d.date}" data-content="${escapeAttr(d.content)}">📝 ${d.date}：${escapeHtml(d.content.slice(0, 40))}…</span>
+        <span class="del" onclick="deleteDraft(${d.id})">✕</span>
+      </div>`).join('');
+    bar.style.display = 'block';
+  } catch (e) { bar.style.display = 'none'; }
+}
+
+function escapeHtml(s) { const el = document.createElement('span'); el.textContent = s; return el.innerHTML; }
+function escapeAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function restoreDraft(id, el) {
+  document.getElementById('content').value = el.dataset.content;
+  document.getElementById('date').value = el.dataset.date;
+  deleteDraft(id);
+  window.scrollTo(0, 0);
+}
+
+async function deleteDraft(id) {
+  await fetch('/api/drafts/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id }) });
+  loadDrafts();
 }
 
 function pickDate(el) {
@@ -88,59 +144,88 @@ function pickDate(el) {
   document.getElementById('content').focus();
 }
 
-let pendingPolished = '';
-
-async function submit(mode) {
+async function polish(mode) {
   const content = document.getElementById('content').value.trim();
   const date = document.getElementById('date').value;
-  const btn = document.getElementById('btn');
-  const result = document.getElementById('result');
-  const conflict = document.getElementById('conflict');
+  const btn = document.getElementById('polish-btn');
   if (!content) { showResult('error', '请先输入内容'); return; }
-  btn.disabled = true;
-  btn.textContent = '处理中…';
-  result.style.display = 'none';
-  conflict.style.display = 'none';
-  const payload = { content, date, mode };
-  if (mode === 'new' && pendingPolished) payload.polished = pendingPolished;
+  btn.disabled = true; btn.textContent = 'AI 整理中…';
+  hide('result'); hide('conflict');
   try {
-    const resp = await fetch('/api/process', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+    const resp = await fetch('/api/polish', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, date, mode }),
     });
     const data = await resp.json();
     if (data.ok) {
-      const note = data.date !== date ? `（记录到 ${data.date}）\n` : '';
-      showResult('success', '✓ 已保存到 Memos ' + note + '\n' + data.polished);
-      document.getElementById('content').value = '';
-      pendingPolished = '';
-      loadStatus();
+      state = { date: data.date, polished: data.polished, memoName: data.memo_name };
+      showPreview();
     } else if (data.conflict) {
-      // 口述中提到的日期可能与界面所选不同，以后端解析结果为准
-      if (data.date) document.getElementById('date').value = data.date;
-      pendingPolished = data.polished || '';
+      document.getElementById('date').value = data.date;
+      state = { date: data.date, polished: data.polished, memoName: null };
       document.getElementById('conflict-msg').textContent = data.error + '，要怎么处理？';
       document.getElementById('conflict-preview').textContent = data.existing;
-      conflict.style.display = 'block';
+      show('conflict');
     } else {
       showResult('error', data.error || '未知错误');
+      if (data.draft_saved) loadDrafts();
     }
-  } catch (e) {
-    showResult('error', '请求失败：' + e.message);
-  }
-  btn.disabled = false;
-  btn.textContent = '整理并保存';
+  } catch (e) { showResult('error', '请求失败：' + e.message); }
+  btn.disabled = false; btn.textContent = 'AI 整理';
 }
 
+function useAsNew() {
+  // 冲突时选择另起一条：直接用刚才整理好的结果进入预览
+  hide('conflict');
+  showPreview();
+}
+
+function showPreview() {
+  document.getElementById('polished').value = state.polished;
+  document.getElementById('preview-date').textContent = state.date + (state.memoName ? '，更新已有记录' : '');
+  document.getElementById('input-stage').style.display = 'none';
+  show('preview-stage');
+}
+
+function backToEdit() {
+  hide('preview-stage');
+  document.getElementById('input-stage').style.display = 'block';
+}
+
+async function save() {
+  const polished = document.getElementById('polished').value.trim();
+  const btn = document.getElementById('save-btn');
+  if (!polished) { showResult('error', '内容不能为空'); return; }
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    const resp = await fetch('/api/save', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ polished, date: state.date, memo_name: state.memoName }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      hide('preview-stage');
+      document.getElementById('input-stage').style.display = 'block';
+      document.getElementById('content').value = '';
+      showResult('success', `✓ 已保存到 Memos（${data.date}）`);
+      loadStatus(); loadDrafts();
+    } else {
+      showResult('error', data.error || '未知错误');
+      if (data.draft_saved) loadDrafts();
+    }
+  } catch (e) { showResult('error', '请求失败：' + e.message); }
+  btn.disabled = false; btn.textContent = '保存到 Memos';
+}
+
+function show(id) { document.getElementById(id).style.display = 'block'; }
+function hide(id) { document.getElementById(id).style.display = 'none'; }
 function showResult(type, msg) {
   const el = document.getElementById('result');
-  el.className = type;
-  el.style.display = 'block';
-  el.textContent = msg;
+  el.className = type; el.style.display = 'block'; el.textContent = msg;
 }
 
 loadStatus();
+loadDrafts();
 </script>
 </body>
 </html>

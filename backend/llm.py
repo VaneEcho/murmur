@@ -62,3 +62,37 @@ async def rewrite(
         resp.raise_for_status()
     reply = resp.json()["choices"][0]["message"]["content"].strip()
     return _parse_reply(reply)
+
+
+async def suggest_glossary(
+    texts: str,
+    current_glossary: str,
+    url: str,
+    api_key: str,
+    model: str,
+) -> list[str]:
+    """从历史日记文本中提取专有名词，排除已在词表中的，返回候选列表。"""
+    prompt = (
+        "以下是一些日记片段。请从中提取反复出现或重要的专有名词"
+        "（人名、地名、公司/产品名、固定称呼等），用于语音输入的错字校正词表。\n"
+        "不要提取普通名词和日常词汇。只输出一个 JSON 数组，如 [\"张三\", \"星巴克\"]，不要其他内容。\n"
+    )
+    if current_glossary.strip():
+        prompt += f"\n以下词已在词表中，不要重复提取：\n{current_glossary.strip()}\n"
+    prompt += f"\n日记片段：\n{texts}"
+
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {"model": model, "messages": [{"role": "user", "content": prompt}]}
+    base = url.rstrip("/")
+    if not base.endswith("/chat/completions"):
+        base = f"{base}/chat/completions"
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(base, json=payload, headers=headers)
+        resp.raise_for_status()
+    reply = resp.json()["choices"][0]["message"]["content"].strip()
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", reply)
+    try:
+        terms = json.loads(cleaned)
+        return [str(t).strip() for t in terms if str(t).strip()] if isinstance(terms, list) else []
+    except json.JSONDecodeError:
+        return []
