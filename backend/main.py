@@ -399,8 +399,10 @@ async def organize_apply(request: Request):
             elif typ in ("note", "password"):
                 # 只追加标签，绝不改写原文
                 tags = [t.strip().lstrip("#") for t in (item.get("tags") or []) if t.strip()]
-                if typ == "password" and "密码" not in tags:
-                    tags.insert(0, "密码")
+                # 统一加伞标签，重扫时据此跳过，避免二次整理（不依赖本地提议库）
+                umbrella = "密码" if typ == "password" else "笔记"
+                if umbrella not in tags:
+                    tags.insert(0, umbrella)
                 if not tags:
                     errors.append(f"#{p['id']}: 没有标签可打")
                     continue
