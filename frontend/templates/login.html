@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 — Murmur</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8f9fa; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px; }
+  h1 { font-size: 1.5rem; font-weight: 600; color: #1a1a1a; margin-bottom: 24px; }
+  .card { background: white; border-radius: 16px; padding: 24px; width: 100%; max-width: 360px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+  input { width: 100%; padding: 12px; border: 1px solid #e0e0e0; border-radius: 10px; font-size: 1rem; outline: none; }
+  input:focus { border-color: #4f8ef7; }
+  button { width: 100%; margin-top: 14px; padding: 14px; background: #4f8ef7; color: white; border: none; border-radius: 12px; font-size: 1.05rem; font-weight: 600; cursor: pointer; }
+  button:hover { background: #3a7ae0; }
+  .err { margin-top: 12px; color: #c0392b; font-size: 0.9rem; text-align: center; }
+</style>
+</head>
+<body>
+<h1>Murmur</h1>
+<div class="card">
+  <form method="post" action="/login">
+    <input type="password" name="password" placeholder="访问密码" autofocus>
+    <button type="submit">进入</button>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  </form>
+</div>
+</body>
+</html>

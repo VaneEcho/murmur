@@ -88,6 +88,8 @@ function pickDate(el) {
   document.getElementById('content').focus();
 }
 
+let pendingPolished = '';
+
 async function submit(mode) {
   const content = document.getElementById('content').value.trim();
   const date = document.getElementById('date').value;
@@ -99,18 +101,25 @@ async function submit(mode) {
   btn.textContent = '处理中…';
   result.style.display = 'none';
   conflict.style.display = 'none';
+  const payload = { content, date, mode };
+  if (mode === 'new' && pendingPolished) payload.polished = pendingPolished;
   try {
     const resp = await fetch('/api/process', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, date, mode }),
+      body: JSON.stringify(payload),
     });
     const data = await resp.json();
     if (data.ok) {
-      showResult('success', '✓ 已保存到 Memos\n\n' + data.polished);
+      const note = data.date !== date ? `（记录到 ${data.date}）\n` : '';
+      showResult('success', '✓ 已保存到 Memos ' + note + '\n' + data.polished);
       document.getElementById('content').value = '';
+      pendingPolished = '';
       loadStatus();
     } else if (data.conflict) {
+      // 口述中提到的日期可能与界面所选不同，以后端解析结果为准
+      if (data.date) document.getElementById('date').value = data.date;
+      pendingPolished = data.polished || '';
       document.getElementById('conflict-msg').textContent = data.error + '，要怎么处理？';
       document.getElementById('conflict-preview').textContent = data.existing;
       conflict.style.display = 'block';
