@@ -29,6 +29,19 @@ async def _chat(messages: list, url: str, api_key: str, model: str) -> str:
     return resp.json()["choices"][0]["message"]["content"].strip()
 
 
+async def list_models(url: str, api_key: str) -> list[str]:
+    """拉取 OpenAI 兼容接口的可用模型列表。"""
+    base = url.rstrip("/")
+    if base.endswith("/chat/completions"):
+        base = base[: -len("/chat/completions")]
+    headers = {"Authorization": f"Bearer {api_key}"}
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{base}/models", headers=headers)
+        resp.raise_for_status()
+    data = resp.json().get("data", [])
+    return sorted(m["id"] for m in data if m.get("id"))
+
+
 def _strip_fences(s: str) -> str:
     return re.sub(r"^```(?:json)?\s*|\s*```$", "", s.strip())
 
@@ -91,6 +104,74 @@ async def merge_rewrite(
     raw = f"这一天已有的记录：\n{old}\n\n新补充的口述内容：\n{new}\n\n请将两者合并整理为一条完整的记录。"
     entries = await split_and_polish(raw, date, prompt_template, url, api_key, model, glossary)
     return "\n\n".join(e["text"] for e in entries)
+
+
+CLASSIFY_INSTRUCTION = """你是笔记整理助手。下面是笔记软件里的一条旧记录，发布日期是 {created}（可能是后来补写的，这个日期不可信，但年份可以参考）。
+
+请判断类型并输出 JSON 对象：
+
+- "type": 四选一。"diary"＝流水账/日记，以「X月X日」「X月X日，周X」这类日期开头的几乎都是日记；"note"＝知识、心得、备忘、摘抄、链接类笔记；"password"＝账号、密码、密钥、卡号类敏感信息；"other"＝无法明确判断
+
+- "entries": 仅 diary 时输出，其他类型为 []。一条记录可能一次补写了好几天的内容，请按天拆分成数组：[{{"date": "YYYY-MM-DD", "text": "..."}}, ...]
+  - date：用正文里写的日期；只写了月日（如「6月4日」）时用发布日期 {created} 的年份补全；完全没写日期则为 null，不要拿发布日期当记录日期
+  - text：该天内容的轻度整理。只做三件事：改正语音输入的错字同音字、理顺明显不通的语句、每件事写成一行。保留原本的口语说法，不要改成书面语或公文腔（例如「中午应该是有炸鸡腿」最多理顺成「中午吃了炸鸡腿」，绝不能写成「午餐摄入了炸鸡腿」）。不增加、不删减、不脑补。去掉开头的日期和星期（程序会另行添加）
+
+- "tags": 仅 note 和 password 时输出 1~3 个内容标签，方便日后点标签查找。标签用中文（产品名等专有名词除外）。粒度适中：「证书」「网络配置」这种可以；「知识」「work」太宽泛；「2024年6月办公室路由器改造」太细。优先从已有标签里选：{existing_tags}。没有合适的可以新造。diary 为 []
+
+- "terms": 人名，以及容易被语音输入法写错的专有名词（特定地名、公司名、系统名）。不收普通词汇。没有则 []
+
+只输出 JSON 对象，不要任何其他内容。
+
+记录正文：
+{content}"""
+
+
+def _clean_list(v) -> list[str]:
+    if not isinstance(v, list):
+        return []
+    return [str(x).strip() for x in v if str(x).strip()]
+
+
+async def classify_memo(
+    content: str,
+    created: str,
+    existing_tags: str,
+    url: str,
+    api_key: str,
+    model: str,
+) -> dict:
+    """对一条旧 memo 分类。返回 {type, entries: [{date, text}], tags, terms}。"""
+    prompt = CLASSIFY_INSTRUCTION.format(
+        created=created, content=content,
+        existing_tags=existing_tags or "（暂无）",
+    )
+    reply = await _chat([{"role": "user", "content": prompt}], url, api_key, model)
+    try:
+        data = json.loads(_strip_fences(reply))
+        t = data.get("type")
+        if t not in ("diary", "note", "password", "other"):
+            t = "other"
+        entries = []
+        for e in (data.get("entries") or []):
+            if not isinstance(e, dict):
+                continue
+            d = e.get("date")
+            if d:
+                try:
+                    date_cls.fromisoformat(d)
+                except ValueError:
+                    d = None
+            text = (e.get("text") or "").strip()
+            if text:
+                entries.append({"date": d, "text": text})
+        return {
+            "type": t,
+            "entries": entries,
+            "tags": _clean_list(data.get("tags"))[:3],
+            "terms": _clean_list(data.get("terms")),
+        }
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        return {"type": "other", "entries": [], "tags": [], "terms": []}
 
 
 async def suggest_glossary(

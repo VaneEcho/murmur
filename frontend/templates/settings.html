@@ -48,7 +48,11 @@
     <label>API Key</label>
     <input type="password" name="llm_api_key" value="{{ cfg.llm_api_key }}" placeholder="sk-...">
     <label>模型名称</label>
-    <input type="text" name="llm_model" value="{{ cfg.llm_model }}" placeholder="gpt-4o-mini">
+    <input type="text" name="llm_model" id="llm_model" list="model-list" value="{{ cfg.llm_model }}" placeholder="gpt-4o-mini">
+    <label>旧记录整理用模型（可选，留空用上面的模型；建议选个小而快的）</label>
+    <input type="text" name="organize_model" id="organize_model" list="model-list" value="{{ cfg.organize_model }}" placeholder="qwen3.5:9b">
+    <datalist id="model-list"></datalist>
+    <button type="button" class="minor" id="models-btn" onclick="fetchModels()">🔄 拉取可用模型列表（先保存上面的地址和 Key）</button>
 
     <div class="section-title">日记设置</div>
     <label>日记标签（用于区分日记和普通笔记）</label>
@@ -70,6 +74,24 @@
   </form>
 </div>
 <script>
+async function fetchModels() {
+  const btn = document.getElementById('models-btn');
+  btn.disabled = true; btn.textContent = '拉取中…';
+  try {
+    const resp = await fetch('/api/models');
+    const data = await resp.json();
+    if (!data.ok) { alert(data.error); }
+    else {
+      const dl = document.getElementById('model-list');
+      dl.innerHTML = data.models.map(m => `<option value="${m}">`).join('');
+      btn.textContent = `✓ 已拉取 ${data.models.length} 个模型，点模型输入框选择`;
+      btn.disabled = false;
+      return;
+    }
+  } catch (e) { alert('请求失败：' + e.message); }
+  btn.disabled = false; btn.textContent = '🔄 拉取可用模型列表（先保存上面的地址和 Key）';
+}
+
 async function suggestGlossary() {
   const btn = document.getElementById('suggest-btn');
   btn.disabled = true; btn.textContent = '提取中…';

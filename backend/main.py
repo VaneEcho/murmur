@@ -15,9 +15,11 @@ from backend.db import (
     get_settings, save_settings,
     save_draft, list_drafts, delete_draft,
     create_job, update_job, list_jobs, recover_stale_jobs,
+    upsert_proposal, list_proposals, proposal_memo_names,
+    set_proposal_status, get_proposal,
 )
-from backend.llm import split_and_polish, merge_rewrite, suggest_glossary
-from backend.memos import create_memo, update_memo_content, list_diary
+from backend.llm import split_and_polish, merge_rewrite, suggest_glossary, classify_memo, list_models
+from backend.memos import create_memo, update_memo_content, list_diary, list_all_memos, set_display_time
 
 app = FastAPI()
 _root = os.path.join(os.path.dirname(__file__), "..")
@@ -26,6 +28,16 @@ app.mount("/static", StaticFiles(directory=os.path.join(_root, "frontend", "stat
 
 MISSING_WINDOW_DAYS = 14
 WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+# asyncio.create_task 的任务必须保持引用，否则可能被垃圾回收中途杀掉
+_background_tasks: set = set()
+
+
+def spawn(coro):
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
 
 PASSWORD = os.environ.get("MURMUR_PASSWORD", "")
 COOKIE_NAME = "murmur_auth"
@@ -100,6 +112,7 @@ async def save_settings_post(
     prompt: str = Form(""),
     diary_tag: str = Form("日记"),
     glossary: str = Form(""),
+    organize_model: str = Form(""),
 ):
     save_settings({
         "memos_url": memos_url,
@@ -110,6 +123,7 @@ async def save_settings_post(
         "prompt": prompt,
         "diary_tag": diary_tag.strip().lstrip("#") or "日记",
         "glossary": glossary,
+        "organize_model": organize_model.strip(),
     })
     cfg = get_settings()
     return templates.TemplateResponse("settings.html", {"request": request, "cfg": cfg, "saved": True})
@@ -197,7 +211,7 @@ async def submit(request: Request):
         return JSONResponse({"ok": False, "error": err}, status_code=400)
 
     job_id = create_job(content, ui_date)
-    asyncio.create_task(run_job(job_id, content, ui_date))
+    spawn(run_job(job_id, content, ui_date))
     return JSONResponse({"ok": True, "job_id": job_id})
 
 
@@ -219,6 +233,218 @@ async def drafts_delete(request: Request):
     body = await request.json()
     delete_draft(int(body.get("id", 0)))
     return JSONResponse({"ok": True})
+
+
+SCAN_BATCH = 10
+_scan_state = {"running": False, "done": 0, "total": 0, "remaining": 0, "error": None, "stop": False}
+
+
+@app.get("/organize", response_class=HTMLResponse)
+async def organize_page(request: Request):
+    return templates.TemplateResponse("organize.html", {"request": request})
+
+
+async def run_scan(batch: list, cfg: dict, existing_tags: str):
+    """后台逐条分类，结果写入提议表。可被 stop 标志中断。"""
+    model = cfg.get("organize_model") or cfg.get("llm_model") or "gpt-4o-mini"
+    try:
+        for m in batch:
+            if _scan_state["stop"]:
+                break
+            created = (m.get("displayTime") or m.get("createTime") or "")[:10]
+            result = await classify_memo(
+                content=m["content"], created=created, existing_tags=existing_tags,
+                url=cfg["llm_url"], api_key=cfg["llm_api_key"], model=model,
+            )
+            result = _date_prefix_fallback(result, m["content"], created)
+            result["current_date"] = created
+            upsert_proposal(m["name"], m["content"], json.dumps(result, ensure_ascii=False))
+            _scan_state["done"] += 1
+            _scan_state["remaining"] = max(0, _scan_state["remaining"] - 1)
+    except Exception as e:
+        _scan_state["error"] = str(e)
+    finally:
+        _scan_state["running"] = False
+        _scan_state["stop"] = False
+
+
+def _collect_tags(memos: list) -> str:
+    """统计全部 memo 里出现过的标签，按频次取前 30 个。"""
+    import re
+    from collections import Counter
+    counter = Counter()
+    for m in memos:
+        counter.update(re.findall(r"#([^\s#，。]+)", m.get("content", "")))
+    return "、".join(t for t, _ in counter.most_common(30))
+
+
+_DATE_PREFIX = None
+
+
+def _date_prefix_fallback(result: dict, content: str, created: str) -> dict:
+    """确定性兜底：以「X月X日」开头的记录必为日记，不依赖 AI 判断。"""
+    import re
+    global _DATE_PREFIX
+    if _DATE_PREFIX is None:
+        _DATE_PREFIX = re.compile(r"^\s*(\d{1,2})月(\d{1,2})[日号]")
+    m = _DATE_PREFIX.match(content)
+    if not m or result["type"] == "diary":
+        return result
+    result["type"] = "diary"
+    result["tags"] = []
+    if not result["entries"]:
+        year = created[:4] if created[:4].isdigit() else str(date_cls.today().year)
+        d = f"{year}-{int(m.group(1)):02d}-{int(m.group(2)):02d}"
+        text = re.sub(
+            r"^\s*\d{1,2}月\d{1,2}[日号][，,。.\s]*(周[一二三四五六日天]|星期[一二三四五六日天])?[，,。.\s]*",
+            "", content,
+        ).strip()
+        result["entries"] = [{"date": d, "text": text or content}]
+    return result
+
+
+def _known_tags(cfg: dict) -> list:
+    return [f"#{cfg['diary_tag']}", "#笔记", "#密码"]
+
+
+@app.post("/api/organize/scan")
+async def organize_scan(request: Request):
+    """扫描旧 memo 交给 AI 分类。continuous=true 时连续扫完全部，否则只扫一批。"""
+    if _scan_state["running"]:
+        return JSONResponse({"ok": False, "error": "正在扫描中"}, status_code=409)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    continuous = bool(body.get("continuous"))
+    cfg = get_settings()
+    if err := _config_error(cfg):
+        return JSONResponse({"ok": False, "error": err}, status_code=400)
+    try:
+        memos = await list_all_memos(cfg["memos_url"], cfg["memos_token"])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"读取 Memos 失败：{e}"}, status_code=500)
+
+    seen = proposal_memo_names()
+    tags = _known_tags(cfg)
+    candidates = [
+        m for m in memos
+        if m["name"] not in seen and not any(t in m.get("content", "") for t in tags)
+    ]
+    if not candidates:
+        return JSONResponse({"ok": True, "started": 0, "remaining": 0, "message": "没有需要整理的旧记录了"})
+
+    batch = candidates if continuous else candidates[:SCAN_BATCH]
+    _scan_state.update({"running": True, "done": 0, "total": len(batch),
+                        "remaining": len(candidates) - len(batch), "error": None, "stop": False})
+    spawn(run_scan(batch, cfg, _collect_tags(memos)))
+    return JSONResponse({"ok": True, "started": len(batch), "remaining": len(candidates) - len(batch)})
+
+
+@app.post("/api/organize/stop")
+async def organize_stop():
+    if _scan_state["running"]:
+        _scan_state["stop"] = True
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/organize/list")
+async def organize_list():
+    items = []
+    for p in list_proposals("proposed"):
+        prop = json.loads(p["proposal"])
+        items.append({
+            "id": p["id"], "memo_name": p["memo_name"],
+            "content": p["content"], **prop,
+        })
+    return JSONResponse({"ok": True, "scan": _scan_state, "proposals": items})
+
+
+@app.post("/api/organize/apply")
+async def organize_apply(request: Request):
+    """应用用户勾选确认的提议。"""
+    body = await request.json()
+    items = body.get("items") or []
+    cfg = get_settings()
+    if err := _config_error(cfg):
+        return JSONResponse({"ok": False, "error": err}, status_code=400)
+    tag_diary = cfg["diary_tag"]
+
+    applied, errors, all_terms = [], [], []
+    for item in items:
+        p = get_proposal(int(item["id"]))
+        if not p or p["status"] != "proposed":
+            continue
+        typ = item.get("type") or "other"
+        try:
+            if typ == "diary":
+                entries = [e for e in (item.get("entries") or []) if (e.get("text") or "").strip()]
+                if not entries:
+                    errors.append(f"#{p['id']}: 没有可用的整理内容")
+                    continue
+                # 第一天更新原条目，其余天各自新建
+                first, rest = entries[0], entries[1:]
+                d0, t0 = first.get("date"), first["text"].strip()
+                new_content = _with_header(t0, d0, tag_diary) if d0 else f"{t0}\n\n#{tag_diary}"
+                await update_memo_content(p["memo_name"], new_content, cfg["memos_url"], cfg["memos_token"])
+                if d0:
+                    await set_display_time(p["memo_name"], d0, cfg["memos_url"], cfg["memos_token"])
+                for e in rest:
+                    d, t = e.get("date"), e["text"].strip()
+                    if not d:
+                        errors.append(f"#{p['id']}: 有一段没有日期，已跳过该段")
+                        continue
+                    await create_memo(_with_header(t, d, tag_diary),
+                                      cfg["memos_url"], cfg["memos_token"], display_date=d)
+            elif typ in ("note", "password"):
+                # 只追加标签，绝不改写原文
+                tags = [t.strip().lstrip("#") for t in (item.get("tags") or []) if t.strip()]
+                if typ == "password" and "密码" not in tags:
+                    tags.insert(0, "密码")
+                if not tags:
+                    errors.append(f"#{p['id']}: 没有标签可打")
+                    continue
+                tag_line = " ".join(f"#{t}" for t in tags)
+                new_content = f"{p['content'].rstrip()}\n\n{tag_line}"
+                await update_memo_content(p["memo_name"], new_content, cfg["memos_url"], cfg["memos_token"])
+            else:
+                set_proposal_status(p["id"], "skipped")
+                continue
+            set_proposal_status(p["id"], "applied")
+            applied.append(p["id"])
+            all_terms.extend(item.get("terms") or [])
+        except Exception as e:
+            errors.append(f"#{p['id']}: {e}")
+
+    if all_terms:
+        glossary = cfg.get("glossary", "")
+        existing = {line.strip() for line in glossary.splitlines() if line.strip()}
+        new_terms = [t for t in dict.fromkeys(all_terms) if t not in existing]
+        if new_terms:
+            save_settings({"glossary": (glossary.strip() + "\n" if glossary.strip() else "") + "\n".join(new_terms)})
+
+    return JSONResponse({"ok": not errors, "applied": len(applied),
+                         "errors": errors, "terms_added": len(all_terms)})
+
+
+@app.post("/api/organize/skip")
+async def organize_skip(request: Request):
+    body = await request.json()
+    set_proposal_status(int(body.get("id", 0)), "skipped")
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/models")
+async def models():
+    """拉取 LLM 接口的可用模型列表，供设置页下拉选择。"""
+    cfg = get_settings()
+    if not cfg.get("llm_url"):
+        return JSONResponse({"ok": False, "error": "请先填写 LLM API 地址"}, status_code=400)
+    try:
+        ids = await list_models(cfg["llm_url"], cfg.get("llm_api_key", ""))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"拉取模型列表失败：{e}"}, status_code=500)
+    return JSONResponse({"ok": True, "models": ids})
 
 
 @app.post("/api/glossary/suggest")

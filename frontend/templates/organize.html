@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>整理旧记录 — Murmur</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8f9fa; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 24px 16px; }
+  h1 { font-size: 1.5rem; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; }
+  .sub { color: #888; font-size: 0.85rem; margin-bottom: 16px; max-width: 640px; text-align: center; line-height: 1.6; }
+  .nav { width: 100%; max-width: 640px; text-align: left; margin-bottom: 12px; }
+  .nav a { color: #888; font-size: 0.85rem; text-decoration: none; }
+  .nav a:hover { color: #4f8ef7; }
+  .toolbar { width: 100%; max-width: 640px; display: flex; gap: 10px; margin-bottom: 14px; align-items: center; }
+  button { padding: 12px 18px; background: #4f8ef7; color: white; border: none; border-radius: 12px; font-size: 0.95rem; font-weight: 600; cursor: pointer; }
+  button:hover { background: #3a7ae0; }
+  button:disabled { background: #aac6fb; cursor: default; }
+  button.secondary { background: white; color: #4f8ef7; border: 1px solid #4f8ef7; }
+  #progress { font-size: 0.85rem; color: #777; }
+  .item { background: white; border-radius: 14px; padding: 14px 16px; width: 100%; max-width: 640px; margin-bottom: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.05); }
+  .item .row1 { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .item input[type="checkbox"] { width: 18px; height: 18px; flex-shrink: 0; }
+  .badge { font-size: 0.78rem; padding: 3px 10px; border-radius: 999px; flex-shrink: 0; }
+  .badge.diary { background: #e8f1ff; color: #2f6bd8; }
+  .badge.note { background: #eef7ee; color: #3d8b50; }
+  .badge.password { background: #fdeeee; color: #c0392b; }
+  .badge.other { background: #f0f0f0; color: #888; }
+  select, input[type="date"] { padding: 6px 8px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 0.85rem; }
+  .orig { font-size: 0.85rem; color: #999; white-space: pre-wrap; max-height: 80px; overflow-y: auto; background: #fafafa; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+  .polished-box textarea { width: 100%; padding: 10px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 0.9rem; line-height: 1.6; min-height: 80px; resize: vertical; }
+  .terms { font-size: 0.8rem; color: #777; margin-top: 6px; }
+  .skip { font-size: 0.82rem; color: #aaa; cursor: pointer; margin-left: auto; }
+  .skip:hover { color: #c0392b; }
+  #empty { color: #999; font-size: 0.9rem; margin-top: 30px; }
+  #applybar { position: sticky; bottom: 12px; width: 100%; max-width: 640px; display: none; }
+  #applybar button { width: 100%; padding: 14px; box-shadow: 0 4px 16px rgba(79,142,247,0.4); }
+  .label-sm { font-size: 0.78rem; color: #999; }
+</style>
+</head>
+<body>
+<h1>整理旧记录</h1>
+<p class="sub">扫描没有标签的旧 memo，AI 判断类型：日记会整理语言、修正发布日期；笔记和密码<b>只补标签、绝不改动原文</b>。所有改动需要你勾选确认后才执行。建议执行前备份 Memos 数据库。</p>
+<div class="nav"><a href="/">← 返回</a></div>
+<div class="toolbar">
+  <button id="scan-btn" onclick="scan(false)">🔍 扫描一批（10条）</button>
+  <button id="scan-all-btn" class="secondary" onclick="scan(true)">⏩ 连续扫描全部</button>
+  <button id="stop-btn" class="secondary" style="display:none;" onclick="stopScan()">⏹ 停止</button>
+  <span id="progress"></span>
+</div>
+<div id="list"></div>
+<div id="empty" style="display:none;">没有待确认的提议。点上方按钮扫描。</div>
+<div id="applybar"><button onclick="applySelected()">✓ 应用选中的修改</button></div>
+<script>
+let pollTimer = null;
+
+async function scan(continuous) {
+  setScanButtons(true);
+  try {
+    const resp = await fetch('/api/organize/scan', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ continuous }),
+    });
+    const data = await resp.json();
+    if (!data.ok) { alert(data.error); setScanButtons(false); return; }
+    if (data.message) { document.getElementById('progress').textContent = data.message; setScanButtons(false); return; }
+    poll();
+  } catch (e) { alert('请求失败：' + e.message); setScanButtons(false); }
+}
+
+async function stopScan() {
+  await fetch('/api/organize/stop', { method: 'POST' });
+}
+
+function setScanButtons(running) {
+  document.getElementById('scan-btn').disabled = running;
+  document.getElementById('scan-all-btn').disabled = running;
+  document.getElementById('stop-btn').style.display = running ? 'inline-block' : 'none';
+}
+
+async function poll() {
+  const resp = await fetch('/api/organize/list');
+  const data = await resp.json();
+  render(data);
+  const s = data.scan;
+  const prog = document.getElementById('progress');
+  if (s.running) {
+    setScanButtons(true);
+    prog.textContent = `AI 分类中… ${s.done}/${s.total}（之后还剩约 ${s.remaining} 条）`;
+    pollTimer = setTimeout(poll, 4000);
+  } else {
+    setScanButtons(false);
+    prog.textContent = s.error ? ('扫描出错：' + s.error)
+      : (s.total ? `本批完成。剩余未扫描约 ${s.remaining} 条。` : '');
+  }
+}
+
+function render(data) {
+  const list = document.getElementById('list');
+  const items = data.proposals;
+  document.getElementById('empty').style.display = items.length ? 'none' : 'block';
+  document.getElementById('applybar').style.display = items.length ? 'block' : 'none';
+  list.innerHTML = items.map(p => {
+    const typeNames = { diary: '日记', note: '笔记', password: '密码', other: '不确定' };
+    let body = '';
+    if (p.type === 'diary' && (p.entries || []).length) {
+      body = p.entries.map((e, i) =>
+        `<div class="entry" data-idx="${i}">
+          <div style="margin: 8px 0 4px;"><span class="label-sm">第 ${i+1} 天：</span>
+          <input type="date" class="entry-date" value="${e.date || ''}" title="留空则不改发布时间"></div>
+          <textarea class="entry-text">${escapeHtml(e.text)}</textarea>
+        </div>`).join('');
+    } else if (p.type === 'note' || p.type === 'password') {
+      body = `<div style="margin-top:8px;"><span class="label-sm">标签（空格分隔，可修改）：</span>
+        <input type="text" class="tags-input" id="tags-${p.id}" value="${(p.tags||[]).map(escapeHtml).join(' ')}"
+        style="width:100%;padding:8px;border:1px solid #e0e0e0;border-radius:8px;font-size:0.9rem;"></div>`;
+    }
+    return `<div class="item" data-id="${p.id}">
+      <div class="row1">
+        <input type="checkbox" id="ck-${p.id}" ${p.type !== 'other' ? 'checked' : ''}>
+        <select id="type-${p.id}">
+          ${Object.entries(typeNames).map(([k,v]) => `<option value="${k}" ${k===p.type?'selected':''}>${v}</option>`).join('')}
+        </select>
+        <span class="label-sm">当前日期 ${p.current_date || '?'}${(p.entries||[]).length > 1 ? `　·　拆成 ${p.entries.length} 天` : ''}</span>
+        <span class="skip" onclick="skip(${p.id})">跳过 ✕</span>
+      </div>
+      <div class="orig">${escapeHtml(p.content)}</div>
+      ${body}
+      ${p.terms && p.terms.length ? `<div class="terms" data-terms="${p.terms.map(escapeHtml).join('、')}">📇 专有名词（应用时并入词表）：${p.terms.map(escapeHtml).join('、')}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function escapeHtml(s) { const el = document.createElement('span'); el.textContent = s || ''; return el.innerHTML; }
+
+async function skip(id) {
+  await fetch('/api/organize/skip', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id }) });
+  poll();
+}
+
+async function applySelected() {
+  const items = [...document.querySelectorAll('.item')].filter(el =>
+    document.getElementById('ck-' + el.dataset.id).checked
+  ).map(el => {
+    const id = el.dataset.id;
+    const entries = [...el.querySelectorAll('.entry')].map(en => ({
+      date: en.querySelector('.entry-date').value || null,
+      text: en.querySelector('.entry-text').value,
+    }));
+    const tagsEl = document.getElementById('tags-' + id);
+    const termsEl = el.querySelector('.terms');
+    return {
+      id: Number(id),
+      type: document.getElementById('type-' + id).value,
+      entries,
+      tags: tagsEl ? tagsEl.value.split(/[\s,，]+/).filter(Boolean) : [],
+      terms: termsEl ? termsEl.dataset.terms.split('、').filter(Boolean) : [],
+    };
+  });
+  if (!items.length) { alert('没有勾选任何条目'); return; }
+  if (!confirm(`将修改 ${items.length} 条 Memos 记录，确定？`)) return;
+  const resp = await fetch('/api/organize/apply', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ items }),
+  });
+  const data = await resp.json();
+  alert(data.ok ? `✓ 已应用 ${data.applied} 条` : `部分失败：\n${(data.errors||[]).join('\n')}`);
+  poll();
+}
+
+poll();
+</script>
+</body>
+</html>

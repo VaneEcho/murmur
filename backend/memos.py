@@ -27,12 +27,40 @@ async def create_memo(content: str, url: str, token: str, display_date: str | No
     return memo
 
 
+async def set_display_time(name: str, display_date: str, url: str, token: str):
+    base = url.rstrip("/")
+    ts = f"{display_date}T12:00:00Z"
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.patch(f"{base}/api/v1/{name}", json={"displayTime": ts}, headers=_headers(token))
+        resp.raise_for_status()
+
+
 async def update_memo_content(name: str, content: str, url: str, token: str) -> dict:
     base = url.rstrip("/")
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.patch(f"{base}/api/v1/{name}", json={"content": content}, headers=_headers(token))
         resp.raise_for_status()
     return resp.json()
+
+
+async def list_all_memos(url: str, token: str) -> list[dict]:
+    """分页拉取全部 memo，返回原始对象列表。"""
+    base = url.rstrip("/")
+    out = []
+    token_param = ""
+    async with httpx.AsyncClient(timeout=60) as client:
+        while True:
+            params = {"pageSize": 100}
+            if token_param:
+                params["pageToken"] = token_param
+            resp = await client.get(f"{base}/api/v1/memos", params=params, headers=_headers(token))
+            resp.raise_for_status()
+            data = resp.json()
+            out.extend(data.get("memos", []))
+            token_param = data.get("nextPageToken", "")
+            if not token_param:
+                break
+    return out
 
 
 async def list_diary(url: str, token: str, tag: str, page_size: int = 200) -> list[dict]:
