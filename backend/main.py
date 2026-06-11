@@ -445,16 +445,22 @@ async def organize_skip(request: Request):
     return JSONResponse({"ok": True})
 
 
-@app.get("/api/models")
-async def models():
-    """拉取 LLM 接口的可用模型列表，供设置页下拉选择。"""
-    cfg = get_settings()
-    if not cfg.get("llm_url"):
-        return JSONResponse({"ok": False, "error": "请先填写 LLM API 地址"}, status_code=400)
+@app.post("/api/models")
+async def models(request: Request):
+    """拉取 LLM 接口的可用模型列表。优先用请求里带的地址和 Key（无需先保存）。"""
     try:
-        ids = await list_models(cfg["llm_url"], cfg.get("llm_api_key", ""))
+        body = await request.json()
+    except Exception:
+        body = {}
+    cfg = get_settings()
+    url = (body.get("llm_url") or "").strip() or cfg.get("llm_url", "")
+    key = (body.get("llm_api_key") or "").strip() or cfg.get("llm_api_key", "")
+    if not url:
+        return JSONResponse({"ok": False, "error": "请先填写 API 地址"}, status_code=400)
+    try:
+        ids = await list_models(url, key)
     except Exception as e:
-        return JSONResponse({"ok": False, "error": f"拉取模型列表失败：{e}"}, status_code=500)
+        return JSONResponse({"ok": False, "error": f"拉取失败：{e}"}, status_code=500)
     return JSONResponse({"ok": True, "models": ids})
 
 

@@ -6,29 +6,28 @@
 <title>设置 — Murmur</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8f9fa; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 24px 16px; }
-  h1 { font-size: 1.5rem; font-weight: 600; color: #1a1a1a; margin-bottom: 24px; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8f9fa; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 20px 12px; }
+  h1 { font-size: 1.4rem; font-weight: 600; color: #1a1a1a; margin-bottom: 16px; }
   .card { background: white; border-radius: 16px; padding: 20px; width: 100%; max-width: 520px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
-  .section-title { font-size: 0.8rem; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 12px; }
+  .section-title { font-size: 0.8rem; font-weight: 600; color: #999; margin: 20px 0 12px; }
   .section-title:first-child { margin-top: 0; }
   label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 5px; }
   input[type="text"], input[type="url"], input[type="password"] {
     width: 100%; padding: 10px 12px; border: 1px solid #e0e0e0; border-radius: 10px;
-    font-size: 0.95rem; margin-bottom: 14px; outline: none;
+    font-size: 16px; margin-bottom: 14px; outline: none;
   }
   input:focus { border-color: #4f8ef7; }
-  textarea { width: 100%; padding: 12px; border: 1px solid #e0e0e0; border-radius: 10px; font-size: 0.9rem; resize: vertical; min-height: 200px; outline: none; line-height: 1.6; font-family: monospace; margin-bottom: 14px; }
+  textarea { width: 100%; padding: 12px; border: 1px solid #e0e0e0; border-radius: 10px; font-size: 14px; resize: vertical; min-height: 180px; outline: none; line-height: 1.6; font-family: monospace; margin-bottom: 14px; }
   textarea:focus { border-color: #4f8ef7; }
-  .hint { font-size: 0.78rem; color: #aaa; margin-top: -10px; margin-bottom: 14px; }
-  button { width: 100%; padding: 14px; background: #4f8ef7; color: white; border: none; border-radius: 12px; font-size: 1.05rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+  .hint { font-size: 0.78rem; color: #aaa; margin: -10px 0 14px; }
+  button { width: 100%; padding: 14px; background: #4f8ef7; color: white; border: none; border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer; }
   button:hover { background: #3a7ae0; }
-  button.minor { background: white; color: #4f8ef7; border: 1px dashed #9bbdf5; font-size: 0.9rem; padding: 10px; margin-bottom: 14px; font-weight: 500; }
+  button.minor { background: white; color: #4f8ef7; border: 1px dashed #9bbdf5; font-size: 0.88rem; padding: 10px; margin-bottom: 14px; font-weight: 500; }
   button.minor:hover { background: #f2f7ff; }
   button:disabled { opacity: 0.6; cursor: default; }
-  .toast { margin-top: 14px; padding: 12px 16px; border-radius: 10px; background: #edf7f0; color: #2e7d52; border: 1px solid #b7e4c7; font-size: 0.9rem; display: {% if saved %}block{% else %}none{% endif %}; }
+  .toast { margin-top: 14px; padding: 12px 16px; border-radius: 10px; background: #edf7f0; color: #2e7d52; font-size: 0.9rem; display: {% if saved %}block{% else %}none{% endif %}; }
   .nav { width: 100%; max-width: 520px; text-align: left; margin-bottom: 12px; }
   .nav a { color: #888; font-size: 0.85rem; text-decoration: none; }
-  .nav a:hover { color: #4f8ef7; }
 </style>
 </head>
 <body>
@@ -36,77 +35,82 @@
 <div class="nav"><a href="/">← 返回</a></div>
 <div class="card">
   <form method="post" action="/settings">
-    <div class="section-title">Memos</div>
-    <label>Memos 地址</label>
-    <input type="url" name="memos_url" value="{{ cfg.memos_url }}" placeholder="https://your-memos.example.com">
-    <label>API Token</label>
-    <input type="password" name="memos_token" value="{{ cfg.memos_token }}" placeholder="eyJhbGci...">
+    <div class="section-title">MEMOS</div>
+    <label>地址</label>
+    <input type="url" name="memos_url" value="{{ cfg.memos_url }}">
+    <label>Token</label>
+    <input type="password" name="memos_token" value="{{ cfg.memos_token }}">
 
-    <div class="section-title">大语言模型</div>
-    <label>API 地址（兼容 OpenAI 格式）</label>
-    <input type="url" name="llm_url" value="{{ cfg.llm_url }}" placeholder="https://api.openai.com/v1">
+    <div class="section-title">模型</div>
+    <label>API 地址</label>
+    <input type="url" name="llm_url" id="llm_url" value="{{ cfg.llm_url }}" placeholder="https://api.deepseek.com/v1">
     <label>API Key</label>
-    <input type="password" name="llm_api_key" value="{{ cfg.llm_api_key }}" placeholder="sk-...">
-    <label>模型名称</label>
-    <input type="text" name="llm_model" id="llm_model" list="model-list" value="{{ cfg.llm_model }}" placeholder="gpt-4o-mini">
-    <label>旧记录整理用模型（可选，留空用上面的模型；建议选个小而快的）</label>
-    <input type="text" name="organize_model" id="organize_model" list="model-list" value="{{ cfg.organize_model }}" placeholder="qwen3.5:9b">
+    <input type="password" name="llm_api_key" id="llm_api_key" value="{{ cfg.llm_api_key }}">
+    <button type="button" class="minor" id="models-btn" onclick="fetchModels()">拉取模型</button>
+    <label>模型</label>
+    <input type="text" name="llm_model" list="model-list" value="{{ cfg.llm_model }}">
+    <label>整理模型（可选）</label>
+    <input type="text" name="organize_model" list="model-list" value="{{ cfg.organize_model }}">
     <datalist id="model-list"></datalist>
-    <button type="button" class="minor" id="models-btn" onclick="fetchModels()">🔄 拉取可用模型列表（先保存上面的地址和 Key）</button>
 
-    <div class="section-title">日记设置</div>
-    <label>日记标签（用于区分日记和普通笔记）</label>
-    <input type="text" name="diary_tag" value="{{ cfg.diary_tag }}" placeholder="日记">
-    <label>常用词表（人名、地名等，一行一个，AI 会校正语音输入的同音错字）</label>
-    <textarea name="glossary" id="glossary" style="min-height: 100px;" placeholder="张三&#10;星巴克">{{ cfg.glossary }}</textarea>
-    <button type="button" class="minor" id="suggest-btn" onclick="suggestGlossary()">✨ 从历史日记提取候选词</button>
+    <div class="section-title">日记</div>
+    <label>标签</label>
+    <input type="text" name="diary_tag" value="{{ cfg.diary_tag }}">
+    <label>词表</label>
+    <textarea name="glossary" id="glossary" style="min-height: 100px; font-family: inherit;">{{ cfg.glossary }}</textarea>
+    <button type="button" class="minor" id="suggest-btn" onclick="suggestGlossary()">从历史提取</button>
     <div id="suggest-area" style="display:none; margin-bottom:14px;">
-      <p class="hint" style="margin:8px 0 6px;">点击词条加入词表：</p>
       <div id="suggest-chips" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
     </div>
 
-    <div class="section-title">整理提示词</div>
-    <p class="hint" style="margin-top:0;margin-bottom:10px;">可用变量：<code>{content}</code> 原始内容，<code>{date}</code> 日期</p>
+    <div class="section-title">提示词</div>
+    <p class="hint">变量：{content} {date}</p>
     <textarea name="prompt">{{ cfg.prompt }}</textarea>
 
-    <button type="submit">保存设置</button>
-    <div class="toast">✓ 设置已保存</div>
+    <button type="submit">保存</button>
+    <div class="toast">已保存</div>
   </form>
 </div>
 <script>
 async function fetchModels() {
   const btn = document.getElementById('models-btn');
-  btn.disabled = true; btn.textContent = '拉取中…';
+  btn.disabled = true; btn.textContent = '拉取中';
   try {
-    const resp = await fetch('/api/models');
+    const resp = await fetch('/api/models', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        llm_url: document.getElementById('llm_url').value,
+        llm_api_key: document.getElementById('llm_api_key').value,
+      }),
+    });
     const data = await resp.json();
     if (!data.ok) { alert(data.error); }
     else {
-      const dl = document.getElementById('model-list');
-      dl.innerHTML = data.models.map(m => `<option value="${m}">`).join('');
-      btn.textContent = `✓ 已拉取 ${data.models.length} 个模型，点模型输入框选择`;
+      document.getElementById('model-list').innerHTML =
+        data.models.map(m => `<option value="${m}">`).join('');
+      btn.textContent = `已拉取 ${data.models.length} 个，点模型框选择`;
       btn.disabled = false;
       return;
     }
-  } catch (e) { alert('请求失败：' + e.message); }
-  btn.disabled = false; btn.textContent = '🔄 拉取可用模型列表（先保存上面的地址和 Key）';
+  } catch (e) { alert(e.message); }
+  btn.disabled = false; btn.textContent = '拉取模型';
 }
 
 async function suggestGlossary() {
   const btn = document.getElementById('suggest-btn');
-  btn.disabled = true; btn.textContent = '提取中…';
+  btn.disabled = true; btn.textContent = '提取中';
   try {
     const resp = await fetch('/api/glossary/suggest', { method: 'POST' });
     const data = await resp.json();
-    if (!data.ok) { alert(data.error || '提取失败'); }
-    else if (!data.terms.length) { alert('没有提取到新的候选词'); }
+    if (!data.ok) { alert(data.error); }
+    else if (!data.terms.length) { alert('无新候选'); }
     else {
       const chips = document.getElementById('suggest-chips');
       chips.innerHTML = '';
       data.terms.forEach(t => {
         const el = document.createElement('span');
         el.textContent = '+ ' + t;
-        el.style.cssText = 'padding:6px 12px;border-radius:999px;background:#eef4ff;color:#3a6fd0;border:1px solid #c5d8f7;font-size:0.85rem;cursor:pointer;';
+        el.style.cssText = 'padding:6px 12px;border-radius:999px;background:#eef4ff;color:#3a6fd0;font-size:0.85rem;cursor:pointer;';
         el.onclick = () => {
           const g = document.getElementById('glossary');
           if (!g.value.split('\n').map(s => s.trim()).includes(t)) {
@@ -118,8 +122,8 @@ async function suggestGlossary() {
       });
       document.getElementById('suggest-area').style.display = 'block';
     }
-  } catch (e) { alert('请求失败：' + e.message); }
-  btn.disabled = false; btn.textContent = '✨ 从历史日记提取候选词';
+  } catch (e) { alert(e.message); }
+  btn.disabled = false; btn.textContent = '从历史提取';
 }
 </script>
 </body>

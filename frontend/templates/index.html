@@ -12,63 +12,60 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8f9fa; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 24px 16px; }
-  h1 { font-size: 1.5rem; font-weight: 600; color: #1a1a1a; margin-bottom: 4px; }
-  .sub { color: #888; font-size: 0.9rem; margin-bottom: 16px; }
+  h1 { font-size: 1.4rem; font-weight: 600; color: #1a1a1a; margin-bottom: 16px; }
   .card { background: white; border-radius: 16px; padding: 20px; width: 100%; max-width: 520px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
   label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 6px; }
-  input[type="date"] { width: 100%; padding: 10px 12px; border: 1px solid #e0e0e0; border-radius: 10px; font-size: 1rem; margin-bottom: 14px; outline: none; }
+  input[type="date"] { width: 100%; padding: 10px 12px; border: 1px solid #e0e0e0; border-radius: 10px; font-size: 16px; margin-bottom: 14px; outline: none; background: white; }
   input[type="date"]:focus { border-color: #4f8ef7; }
-  textarea { width: 100%; padding: 12px; border: 1px solid #e0e0e0; border-radius: 10px; font-size: 1rem; resize: vertical; min-height: 160px; outline: none; line-height: 1.6; }
+  textarea { width: 100%; padding: 12px; border: 1px solid #e0e0e0; border-radius: 10px; font-size: 16px; resize: vertical; min-height: 160px; outline: none; line-height: 1.6; }
   textarea:focus { border-color: #4f8ef7; }
-  button { width: 100%; margin-top: 14px; padding: 14px; background: #4f8ef7; color: white; border: none; border-radius: 12px; font-size: 1.05rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+  button { width: 100%; margin-top: 14px; padding: 14px; background: #4f8ef7; color: white; border: none; border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer; }
   button:hover { background: #3a7ae0; }
   button:disabled { background: #aac6fb; cursor: default; }
-  #result { margin-top: 16px; padding: 14px; border-radius: 12px; font-size: 0.95rem; line-height: 1.6; display: none; white-space: pre-wrap; }
-  #result.success { background: #edf7f0; color: #2e7d52; border: 1px solid #b7e4c7; }
-  #result.error { background: #fff0f0; color: #c0392b; border: 1px solid #f5c6cb; }
+  #result { margin-top: 16px; padding: 12px 14px; border-radius: 10px; font-size: 0.9rem; line-height: 1.6; display: none; white-space: pre-wrap; word-break: break-word; }
+  #result.success { background: #edf7f0; color: #2e7d52; }
+  #result.error { background: #fff0f0; color: #c0392b; }
   .nav { width: 100%; max-width: 520px; text-align: right; margin-bottom: 12px; }
-  .nav a { color: #888; font-size: 0.85rem; text-decoration: none; }
+  .nav a { color: #888; font-size: 0.85rem; text-decoration: none; margin-left: 14px; }
   .nav a:hover { color: #4f8ef7; }
   #statusbar { width: 100%; max-width: 520px; margin-bottom: 12px; font-size: 0.85rem; color: #777; }
   #statusbar .chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
-  .chip { padding: 6px 12px; border-radius: 999px; background: #fff3e0; color: #b06a00; border: 1px solid #ffd699; font-size: 0.85rem; cursor: pointer; user-select: none; }
-  .chip:hover { background: #ffe6c2; }
-  .chip.active { background: #4f8ef7; color: white; border-color: #4f8ef7; }
+  .chip { padding: 6px 12px; border-radius: 999px; background: #fff3e0; color: #b06a00; font-size: 0.85rem; cursor: pointer; user-select: none; }
+  .chip.active { background: #4f8ef7; color: white; }
   #draftbar { width: 100%; max-width: 520px; margin-bottom: 12px; display: none; }
-  .draft { background: #fffbe8; border: 1px solid #f0e0a0; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.85rem; color: #7a6520; display: flex; align-items: center; gap: 8px; }
+  .draft { background: #fffbe8; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.85rem; color: #7a6520; display: flex; align-items: center; gap: 8px; }
   .draft .text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
   .draft .del { cursor: pointer; color: #bba; padding: 2px 6px; }
-  .draft .del:hover { color: #c0392b; }
   #jobs { width: 100%; max-width: 520px; margin-top: 16px; }
-  #jobs h2 { font-size: 0.85rem; font-weight: 600; color: #999; margin-bottom: 8px; }
   .job { background: white; border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; font-size: 0.88rem; box-shadow: 0 1px 6px rgba(0,0,0,0.05); }
   .job .head { display: flex; align-items: center; gap: 8px; color: #555; cursor: pointer; }
-  .job .icon { flex-shrink: 0; }
-  .job .snippet { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #888; }
-  .job .detail { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; color: #555; line-height: 1.6; white-space: pre-wrap; }
+  .job .st { flex-shrink: 0; font-size: 0.8rem; padding: 2px 8px; border-radius: 6px; }
+  .job .st.run { background: #eef4ff; color: #3a6fd0; }
+  .job .st.ok { background: #edf7f0; color: #2e7d52; }
+  .job .st.err { background: #fff0f0; color: #c0392b; }
+  .job .snippet { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #999; }
+  .job .detail { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; color: #555; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
   .job.open .detail { display: block; }
-  .job .err { color: #c0392b; }
-  .spin { display: inline-block; animation: spin 1.2s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .job .del { cursor: pointer; color: #ccc; padding: 0 4px; }
 </style>
 </head>
 <body>
 <h1>Murmur</h1>
-<p class="sub">今天想记录什么？</p>
-<div class="nav"><a href="/organize">🔧 整理旧记录</a>　<a href="/settings">⚙ 设置</a></div>
-<div id="statusbar">正在读取记录状态…</div>
+<div class="nav"><a href="/organize">整理</a><a href="/settings">设置</a></div>
+<div id="statusbar"></div>
 <div id="draftbar"></div>
 <div class="card">
-  <label for="date">默认日期（口述中提到的日期优先；一次可以说好几天的内容）</label>
+  <label for="date">日期</label>
   <input type="date" id="date" value="{{ today }}">
-  <label for="content">内容（语音输入或手动输入）</label>
-  <textarea id="content" placeholder="说说今天发生了什么……也可以接着说：昨天……前天……"></textarea>
-  <button id="btn" onclick="submit()">交给 AI 整理并发布</button>
+  <label for="content">内容</label>
+  <textarea id="content"></textarea>
+  <button id="btn" onclick="submit()">发布</button>
   <div id="result"></div>
 </div>
 <div id="jobs"></div>
 <script>
 let pollTimer = null;
+let pendingDraftId = null;
 
 async function loadStatus() {
   const bar = document.getElementById('statusbar');
@@ -76,15 +73,13 @@ async function loadStatus() {
     const resp = await fetch('/api/status');
     const data = await resp.json();
     if (!data.ok) { bar.textContent = data.error || ''; return; }
-    let html = data.last_date ? `上次记录：${data.last_date}` : '还没有任何记录';
+    let html = data.last_date ? `上次记录 ${data.last_date}` : '暂无记录';
     const missing = data.missing_days.filter(d => d !== data.today);
     if (missing.length) {
-      html += `　·　近两周缺 ${missing.length} 天`;
+      html += `　缺 ${missing.length} 天`;
       html += '<div class="chips">' + missing.map(d =>
-        `<span class="chip" data-date="${d}" onclick="pickDate(this)">${d.slice(5).replace('-', '月')}日</span>`
+        `<span class="chip" data-date="${d}" onclick="pickDate(this)">${d.slice(5).replace('-', '/')}</span>`
       ).join('') + '</div>';
-    } else {
-      html += '　·　近两周无空缺 ✓';
     }
     bar.innerHTML = html;
   } catch (e) { bar.textContent = ''; }
@@ -98,24 +93,21 @@ async function loadDrafts() {
     if (!data.ok || !data.drafts.length) { bar.style.display = 'none'; return; }
     bar.innerHTML = data.drafts.map(d =>
       `<div class="draft">
-        <span class="text" onclick="restoreDraft(${d.id}, this)" data-date="${d.date}" data-content="${escapeAttr(d.content)}">📝 未发布草稿 ${d.date}：${escapeHtml(d.content.slice(0, 30))}…（点击恢复重试）</span>
+        <span class="text" onclick="restoreDraft(${d.id}, this)" data-date="${d.date}" data-content="${escapeAttr(d.content)}">草稿 ${d.date}　${escapeHtml(d.content.slice(0, 30))}</span>
         <span class="del" onclick="deleteDraft(${d.id})">✕</span>
       </div>`).join('');
     bar.style.display = 'block';
   } catch (e) { bar.style.display = 'none'; }
 }
 
-function escapeHtml(s) { const el = document.createElement('span'); el.textContent = s; return el.innerHTML; }
+function escapeHtml(s) { const el = document.createElement('span'); el.textContent = s || ''; return el.innerHTML; }
 function escapeAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
-
-let pendingDraftId = null;
 
 function restoreDraft(id, el) {
   document.getElementById('content').value = el.dataset.content;
   document.getElementById('date').value = el.dataset.date;
-  // 不立即删除草稿，等发布成功后再删，防止误触丢内容
   pendingDraftId = id;
-  showResult('success', '草稿已填入输入框，发布成功后会自动清除');
+  showResult('success', '已恢复，发布成功后自动清除');
   window.scrollTo(0, 0);
 }
 
@@ -139,7 +131,7 @@ function pickDate(el) {
 async function submit() {
   const content = document.getElementById('content').value.trim();
   const date = document.getElementById('date').value;
-  if (!content) { showResult('error', '请先输入内容'); return; }
+  if (!content) { showResult('error', '内容为空'); return; }
   const btn = document.getElementById('btn');
   btn.disabled = true;
   try {
@@ -151,7 +143,7 @@ async function submit() {
     if (data.ok) {
       document.getElementById('content').value = '';
       if (pendingDraftId) { deleteDraft(pendingDraftId); pendingDraftId = null; }
-      showResult('success', '✓ 已提交后台整理，可以继续说下一条。进度见下方任务列表。');
+      showResult('success', '已提交');
       loadJobs();
     } else {
       showResult('error', data.error || '未知错误');
@@ -167,26 +159,25 @@ async function loadJobs() {
     const data = await resp.json();
     if (!data.ok || !data.jobs.length) { box.innerHTML = ''; return; }
     const open = new Set([...document.querySelectorAll('.job.open')].map(el => el.dataset.id));
-    box.innerHTML = '<h2>任务</h2>' + data.jobs.map(j => {
-      let icon, summary, detail = '';
+    box.innerHTML = data.jobs.map(j => {
+      let st, cls, detail = '';
       if (j.status === 'pending' || j.status === 'processing') {
-        icon = '<span class="spin">⏳</span>'; summary = 'AI 整理中…';
+        st = '处理中'; cls = 'run';
       } else if (j.status === 'done') {
-        icon = '✅';
-        summary = j.result.map(r => `${r.date}${r.action === 'merged' ? '（已合并）' : ''}`).join('、') + ' 已发布';
-        detail = j.result.map(r => `【${r.date}】\n${r.text}`).join('\n\n');
+        st = j.result.map(r => r.date).filter(Boolean).join(' ') || '完成'; cls = 'ok';
+        detail = j.result.map(r => `${r.date}${r.action === 'merged' ? '（合并）' : ''}\n${r.text}`).join('\n\n');
       } else {
-        icon = '❌'; summary = '失败';
-        detail = `<span class="err">${escapeHtml(j.error || '')}</span>`;
+        st = '失败'; cls = 'err';
+        detail = j.error || '';
       }
       const delBtn = (j.status === 'done' || j.status === 'error')
-        ? `<span class="del" onclick="event.stopPropagation(); deleteJob(${j.id})" style="cursor:pointer;color:#ccc;padding:0 4px;">✕</span>` : '';
+        ? `<span class="del" onclick="event.stopPropagation(); deleteJob(${j.id})">✕</span>` : '';
       return `<div class="job ${open.has(String(j.id)) ? 'open' : ''}" data-id="${j.id}">
         <div class="head" onclick="this.parentElement.classList.toggle('open')">
-          <span class="icon">${icon}</span><span>${summary}</span>
-          <span class="snippet">${escapeHtml(j.content.slice(0, 20))}</span>${delBtn}
+          <span class="st ${cls}">${st}</span>
+          <span class="snippet">${escapeHtml(j.content.slice(0, 24))}</span>${delBtn}
         </div>
-        <div class="detail">${detail || escapeHtml(j.content)}</div>
+        <div class="detail">${escapeHtml(detail) || escapeHtml(j.content)}</div>
       </div>`;
     }).join('');
     const hasActive = data.jobs.some(j => j.status === 'pending' || j.status === 'processing');
@@ -202,7 +193,7 @@ async function loadJobs() {
 function showResult(type, msg) {
   const el = document.getElementById('result');
   el.className = type; el.style.display = 'block'; el.textContent = msg;
-  if (type === 'success') setTimeout(() => { el.style.display = 'none'; }, 6000);
+  if (type === 'success') setTimeout(() => { el.style.display = 'none'; }, 4000);
 }
 
 loadStatus();
