@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import os
 from datetime import date as date_cls, timedelta
 
@@ -12,8 +14,9 @@ from fastapi.templating import Jinja2Templates
 from backend.db import (
     get_settings, save_settings,
     save_draft, list_drafts, delete_draft,
+    create_job, update_job, list_jobs, recover_stale_jobs,
 )
-from backend.llm import rewrite, suggest_glossary
+from backend.llm import split_and_polish, merge_rewrite, suggest_glossary
 from backend.memos import create_memo, update_memo_content, list_diary
 
 app = FastAPI()
@@ -26,6 +29,12 @@ WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"
 
 PASSWORD = os.environ.get("MURMUR_PASSWORD", "")
 COOKIE_NAME = "murmur_auth"
+
+
+@app.on_event("startup")
+async def recover_jobs():
+    for job in recover_stale_jobs():
+        save_draft(job["content"], job["date"])
 
 
 def _auth_token() -> str:
@@ -131,110 +140,73 @@ async def status():
     })
 
 
-@app.post("/api/polish")
-async def polish(request: Request):
-    """第一步：AI 整理。mode=auto 时检测日期冲突；mode=merge 时与已有记录合并整理。"""
+async def run_job(job_id: int, content: str, ui_date: str):
+    """后台执行：AI 拆分整理 → 逐条检查冲突（自动合并）→ 写入 Memos。"""
+    update_job(job_id, "processing")
+    cfg = get_settings()
+    tag = cfg["diary_tag"]
+    model = cfg.get("llm_model") or "gpt-4o-mini"
+    llm_args = dict(
+        prompt_template=cfg["prompt"], url=cfg["llm_url"],
+        api_key=cfg["llm_api_key"], model=model, glossary=cfg.get("glossary", ""),
+    )
+    try:
+        entries = await split_and_polish(content=content, default_date=ui_date, **llm_args)
+    except Exception as e:
+        save_draft(content, ui_date)
+        update_job(job_id, "error", error=f"AI 整理失败：{e}（原文已转入草稿）")
+        return
+
+    results = []
+    try:
+        diary = await list_diary(cfg["memos_url"], cfg["memos_token"], tag)
+        by_date = {d["date"]: d for d in diary}
+        for entry in entries:
+            d, text = entry["date"], entry["text"]
+            existing = by_date.get(d)
+            if existing:
+                old = existing["content"].replace(f"#{tag}", "").strip()
+                merged = await merge_rewrite(old=old, new=text, date=d, **llm_args)
+                await update_memo_content(existing["name"], _with_header(merged, d, tag),
+                                          cfg["memos_url"], cfg["memos_token"])
+                results.append({"date": d, "action": "merged", "text": merged})
+            else:
+                await create_memo(_with_header(text, d, tag),
+                                  cfg["memos_url"], cfg["memos_token"], display_date=d)
+                results.append({"date": d, "action": "created", "text": text})
+    except Exception as e:
+        save_draft(content, ui_date)
+        done = "；".join(f"{r['date']} 已发布" for r in results)
+        note = f"（已完成：{done}）" if done else "（原文已转入草稿）"
+        update_job(job_id, "error", result=json.dumps(results, ensure_ascii=False),
+                   error=f"发布失败：{e}{note}")
+        return
+
+    update_job(job_id, "done", result=json.dumps(results, ensure_ascii=False))
+
+
+@app.post("/api/submit")
+async def submit(request: Request):
     body = await request.json()
     content = (body.get("content") or "").strip()
     ui_date = body.get("date") or str(date_cls.today())
-    mode = body.get("mode") or "auto"  # auto | merge
-
     if not content:
         return JSONResponse({"ok": False, "error": "内容不能为空"}, status_code=400)
-
     cfg = get_settings()
     if err := _config_error(cfg):
         return JSONResponse({"ok": False, "error": err}, status_code=400)
-    tag = cfg["diary_tag"]
 
-    existing = None
-    if mode == "merge":
-        try:
-            diary = await list_diary(cfg["memos_url"], cfg["memos_token"], tag)
-            existing = next((d for d in diary if d["date"] == ui_date), None)
-        except Exception as e:
-            return JSONResponse({"ok": False, "error": f"读取 Memos 失败：{e}"}, status_code=500)
-
-    raw = content
-    if existing:
-        old = existing["content"].replace(f"#{tag}", "").strip()
-        raw = f"这一天已有的记录：\n{old}\n\n新补充的口述内容：\n{content}\n\n请将两者合并整理为一条完整记录。"
-
-    try:
-        extracted_date, polished = await rewrite(
-            content=raw,
-            date=ui_date,
-            prompt_template=cfg["prompt"],
-            url=cfg["llm_url"],
-            api_key=cfg["llm_api_key"],
-            model=cfg.get("llm_model") or "gpt-4o-mini",
-            glossary=cfg.get("glossary", ""),
-        )
-    except Exception as e:
-        draft_id = save_draft(content, ui_date)
-        return JSONResponse({
-            "ok": False, "draft_saved": True,
-            "error": f"AI 整理失败：{e}（原文已暂存为草稿 #{draft_id}）",
-        }, status_code=500)
-
-    final_date = ui_date
-    if mode == "auto" and extracted_date:
-        final_date = extracted_date
-
-    if mode == "auto":
-        try:
-            diary = await list_diary(cfg["memos_url"], cfg["memos_token"], tag)
-            conflict = next((d for d in diary if d["date"] == final_date), None)
-        except Exception as e:
-            return JSONResponse({"ok": False, "error": f"读取 Memos 失败：{e}"}, status_code=500)
-        if conflict:
-            return JSONResponse({
-                "ok": False,
-                "conflict": True,
-                "date": final_date,
-                "polished": polished,
-                "existing": conflict["content"],
-                "error": f"{final_date} 已有记录",
-            }, status_code=409)
-
-    return JSONResponse({
-        "ok": True,
-        "polished": polished,
-        "date": final_date,
-        "memo_name": existing["name"] if existing else None,
-    })
+    job_id = create_job(content, ui_date)
+    asyncio.create_task(run_job(job_id, content, ui_date))
+    return JSONResponse({"ok": True, "job_id": job_id})
 
 
-@app.post("/api/save")
-async def save(request: Request):
-    """第二步：把（可能已被用户编辑过的）整理结果写入 Memos。"""
-    body = await request.json()
-    polished = (body.get("polished") or "").strip()
-    record_date = body.get("date") or str(date_cls.today())
-    memo_name = body.get("memo_name")  # 有值则更新已有 memo（合并模式）
-
-    if not polished:
-        return JSONResponse({"ok": False, "error": "内容不能为空"}, status_code=400)
-
-    cfg = get_settings()
-    if err := _config_error(cfg):
-        return JSONResponse({"ok": False, "error": err}, status_code=400)
-    tag = cfg["diary_tag"]
-
-    final = _with_header(polished, record_date, tag)
-    try:
-        if memo_name:
-            memo = await update_memo_content(memo_name, final, cfg["memos_url"], cfg["memos_token"])
-        else:
-            memo = await create_memo(final, cfg["memos_url"], cfg["memos_token"], display_date=record_date)
-    except Exception as e:
-        draft_id = save_draft(polished, record_date)
-        return JSONResponse({
-            "ok": False, "draft_saved": True,
-            "error": f"保存到 Memos 失败：{e}（内容已暂存为草稿 #{draft_id}）",
-        }, status_code=500)
-
-    return JSONResponse({"ok": True, "date": record_date, "memo_id": memo.get("name", "")})
+@app.get("/api/jobs")
+async def jobs():
+    items = list_jobs()
+    for it in items:
+        it["result"] = json.loads(it["result"]) if it["result"] else []
+    return JSONResponse({"ok": True, "jobs": items})
 
 
 @app.get("/api/drafts")
@@ -251,7 +223,6 @@ async def drafts_delete(request: Request):
 
 @app.post("/api/glossary/suggest")
 async def glossary_suggest():
-    """从最近的日记中提取专有名词，作为词表候选。"""
     cfg = get_settings()
     if err := _config_error(cfg):
         return JSONResponse({"ok": False, "error": err}, status_code=400)
