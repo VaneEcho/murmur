@@ -156,6 +156,12 @@ def list_jobs(limit: int = 10) -> list:
     return [dict(r) for r in rows]
 
 
+def delete_job(job_id: int):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM jobs WHERE id = ? AND status IN ('done', 'error')", (job_id,))
+        conn.commit()
+
+
 def recover_stale_jobs() -> list:
     """服务重启后，把卡在 pending/processing 的任务标记失败，返回其内容用于转草稿。"""
     init_db()

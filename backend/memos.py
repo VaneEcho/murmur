@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re
 import httpx
 from datetime import datetime, date
+
+_DATE_PREFIX = re.compile(r"^\s*(\d{1,2})月(\d{1,2})[日号]")
 
 
 def _headers(token: str) -> dict:
@@ -9,29 +12,26 @@ def _headers(token: str) -> dict:
 
 
 async def create_memo(content: str, url: str, token: str, display_date: str | None = None) -> dict:
-    """创建 memo；若指定日期则补设 displayTime，使其在 Memos 中按目标日期排序。"""
+    """创建 memo；若指定日期则把显示时间调到目标日期，使 Memos 时间线顺序正确。"""
     base = url.rstrip("/")
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(f"{base}/api/v1/memos", json={"content": content}, headers=_headers(token))
         resp.raise_for_status()
         memo = resp.json()
-        if display_date and display_date != str(date.today()):
-            ts = f"{display_date}T12:00:00Z"
-            patch = await client.patch(
-                f"{base}/api/v1/{memo['name']}",
-                json={"displayTime": ts},
-                headers=_headers(token),
-            )
-            patch.raise_for_status()
-            memo = patch.json()
+    if display_date and display_date != str(date.today()):
+        await set_display_time(memo["name"], display_date, url, token)
     return memo
 
 
 async def set_display_time(name: str, display_date: str, url: str, token: str):
+    """旧版 Memos 用 displayTime 字段；新版已移除该字段，显示时间即 createTime。
+    先试 displayTime，被拒（400）则改 createTime。"""
     base = url.rstrip("/")
     ts = f"{display_date}T12:00:00Z"
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.patch(f"{base}/api/v1/{name}", json={"displayTime": ts}, headers=_headers(token))
+        if resp.status_code == 400:
+            resp = await client.patch(f"{base}/api/v1/{name}", json={"createTime": ts}, headers=_headers(token))
         resp.raise_for_status()
 
 
@@ -87,3 +87,40 @@ async def list_diary(url: str, token: str, tag: str, page_size: int = 200) -> li
         diary.append({"name": m["name"], "date": str(d), "content": m["content"]})
     diary.sort(key=lambda x: x["date"], reverse=True)
     return diary
+
+
+async def written_dates(url: str, token: str, tag: str, page_size: int = 200) -> tuple[list[dict], set]:
+    """返回 (带标签的日记列表, 全部已写日期集合)。
+    已写日期同时涵盖还没整理过的老格式日记（以「X月X日」开头、无标签），
+    年份取其发布时间的年份。"""
+    base = url.rstrip("/")
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            f"{base}/api/v1/memos",
+            params={"pageSize": page_size},
+            headers=_headers(token),
+        )
+        resp.raise_for_status()
+    memos = resp.json().get("memos", [])
+    marker = f"#{tag}"
+    diary, dates = [], set()
+    for m in memos:
+        content = m.get("content", "")
+        dt = m.get("displayTime") or m.get("createTime") or ""
+        try:
+            d = datetime.fromisoformat(dt.replace("Z", "+00:00")).date()
+        except ValueError:
+            continue
+        if marker in content:
+            diary.append({"name": m["name"], "date": str(d), "content": content})
+            dates.add(str(d))
+        else:
+            pm = _DATE_PREFIX.match(content)
+            if pm:
+                try:
+                    old = date(d.year, int(pm.group(1)), int(pm.group(2)))
+                    dates.add(str(old))
+                except ValueError:
+                    pass
+    diary.sort(key=lambda x: x["date"], reverse=True)
+    return diary, dates

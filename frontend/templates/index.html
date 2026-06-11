@@ -108,11 +108,20 @@ async function loadDrafts() {
 function escapeHtml(s) { const el = document.createElement('span'); el.textContent = s; return el.innerHTML; }
 function escapeAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 
+let pendingDraftId = null;
+
 function restoreDraft(id, el) {
   document.getElementById('content').value = el.dataset.content;
   document.getElementById('date').value = el.dataset.date;
-  deleteDraft(id);
+  // 不立即删除草稿，等发布成功后再删，防止误触丢内容
+  pendingDraftId = id;
+  showResult('success', '草稿已填入输入框，发布成功后会自动清除');
   window.scrollTo(0, 0);
+}
+
+async function deleteJob(id) {
+  await fetch('/api/jobs/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id }) });
+  loadJobs();
 }
 
 async function deleteDraft(id) {
@@ -141,6 +150,7 @@ async function submit() {
     const data = await resp.json();
     if (data.ok) {
       document.getElementById('content').value = '';
+      if (pendingDraftId) { deleteDraft(pendingDraftId); pendingDraftId = null; }
       showResult('success', '✓ 已提交后台整理，可以继续说下一条。进度见下方任务列表。');
       loadJobs();
     } else {
@@ -169,10 +179,12 @@ async function loadJobs() {
         icon = '❌'; summary = '失败';
         detail = `<span class="err">${escapeHtml(j.error || '')}</span>`;
       }
+      const delBtn = (j.status === 'done' || j.status === 'error')
+        ? `<span class="del" onclick="event.stopPropagation(); deleteJob(${j.id})" style="cursor:pointer;color:#ccc;padding:0 4px;">✕</span>` : '';
       return `<div class="job ${open.has(String(j.id)) ? 'open' : ''}" data-id="${j.id}">
         <div class="head" onclick="this.parentElement.classList.toggle('open')">
           <span class="icon">${icon}</span><span>${summary}</span>
-          <span class="snippet">${escapeHtml(j.content.slice(0, 20))}</span>
+          <span class="snippet">${escapeHtml(j.content.slice(0, 20))}</span>${delBtn}
         </div>
         <div class="detail">${detail || escapeHtml(j.content)}</div>
       </div>`;

@@ -14,12 +14,15 @@ from fastapi.templating import Jinja2Templates
 from backend.db import (
     get_settings, save_settings,
     save_draft, list_drafts, delete_draft,
-    create_job, update_job, list_jobs, recover_stale_jobs,
+    create_job, update_job, list_jobs, recover_stale_jobs, delete_job,
     upsert_proposal, list_proposals, proposal_memo_names,
     set_proposal_status, get_proposal,
 )
 from backend.llm import split_and_polish, merge_rewrite, suggest_glossary, classify_memo, list_models
-from backend.memos import create_memo, update_memo_content, list_diary, list_all_memos, set_display_time
+from backend.memos import (
+    create_memo, update_memo_content, list_diary, list_all_memos,
+    set_display_time, written_dates,
+)
 
 app = FastAPI()
 _root = os.path.join(os.path.dirname(__file__), "..")
@@ -135,11 +138,10 @@ async def status():
     if err := _config_error(cfg):
         return JSONResponse({"ok": False, "error": err}, status_code=400)
     try:
-        diary = await list_diary(cfg["memos_url"], cfg["memos_token"], cfg["diary_tag"])
+        diary, written = await written_dates(cfg["memos_url"], cfg["memos_token"], cfg["diary_tag"])
     except Exception as e:
         return JSONResponse({"ok": False, "error": f"读取 Memos 失败：{e}"}, status_code=500)
 
-    written = {d["date"] for d in diary}
     today = date_cls.today()
     missing = []
     for i in range(MISSING_WINDOW_DAYS - 1, -1, -1):
@@ -221,6 +223,13 @@ async def jobs():
     for it in items:
         it["result"] = json.loads(it["result"]) if it["result"] else []
     return JSONResponse({"ok": True, "jobs": items})
+
+
+@app.post("/api/jobs/delete")
+async def jobs_delete(request: Request):
+    body = await request.json()
+    delete_job(int(body.get("id", 0)))
+    return JSONResponse({"ok": True})
 
 
 @app.get("/api/drafts")
