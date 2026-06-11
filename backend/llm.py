@@ -106,7 +106,7 @@ async def split_and_polish(
             if text:
                 entries.append({"date": d, "text": text})
         if entries:
-            return entries
+            return _merge_same_date(entries)
     except (json.JSONDecodeError, ValueError, AttributeError, TypeError):
         pass
     # 解析失败时整段当作默认日期的一条
@@ -149,6 +149,20 @@ CLASSIFY_INSTRUCTION = """你是笔记整理助手。下面是笔记软件里的
 {content}"""
 
 
+def _merge_same_date(entries: list[dict]) -> list[dict]:
+    """小模型常把同一天的内容按话题拆成多条，按日期合并兜底（None 视为同一组）。"""
+    merged: dict = {}
+    order = []
+    for e in entries:
+        d = e.get("date")
+        if d in merged:
+            merged[d]["text"] += "\n" + e["text"]
+        else:
+            merged[d] = {"date": d, "text": e["text"]}
+            order.append(d)
+    return [merged[d] for d in order]
+
+
 def _clean_list(v) -> list[str]:
     if not isinstance(v, list):
         return []
@@ -189,7 +203,7 @@ async def classify_memo(
                 entries.append({"date": d, "text": text})
         return {
             "type": t,
-            "entries": entries,
+            "entries": _merge_same_date(entries),
             "tags": _clean_list(data.get("tags"))[:3],
             "terms": _clean_list(data.get("terms")),
         }
