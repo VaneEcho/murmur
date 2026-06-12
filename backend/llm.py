@@ -48,8 +48,10 @@ async def _chat(messages: list, url: str, api_key: str, model: str, think: bool 
             except httpx.HTTPError:
                 _native_ollama[root] = False
 
-        resp = await client.post(f"{base}/chat/completions",
-                                 json={"model": model, "messages": messages}, headers=headers)
+        body: dict = {"model": model, "messages": messages}
+        if not think:
+            body["thinking"] = {"type": "disabled"}
+        resp = await client.post(f"{base}/chat/completions", json=body, headers=headers)
         resp.raise_for_status()
     return resp.json()["choices"][0]["message"]["content"].strip()
 
