@@ -28,7 +28,7 @@ DEFAULT_PROMPT = """你是我的日记助手。下面是我用语音输入法口
 DEFAULT_SETTINGS = {
     "memos_url": "",
     "memos_token": "",
-    "llm_url": "",
+    "llm_url": "https://api.deepseek.com/v1",
     "llm_api_key": "",
     "llm_model": "gpt-4o-mini",
     "prompt": DEFAULT_PROMPT,

@@ -27,7 +27,8 @@ _native_ollama: dict = {}
 async def _chat(messages: list, url: str, api_key: str, model: str) -> str:
     """优先走 Ollama 原生 /api/chat 并关闭思考模式（推理模型快几十倍）；
     非 Ollama 接口（如 DeepSeek）自动回落到 OpenAI 兼容端点。"""
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    auth = {"Authorization": f"Bearer {api_key}"} if api_key.strip() else {}
+    headers = {**auth, "Content-Type": "application/json"}
     base = url.rstrip("/")
     if base.endswith("/chat/completions"):
         base = base[: -len("/chat/completions")]
@@ -59,7 +60,7 @@ async def list_models(url: str, api_key: str) -> list[str]:
     base = url.rstrip("/")
     if base.endswith("/chat/completions"):
         base = base[: -len("/chat/completions")]
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key.strip() else {}
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.get(f"{base}/models", headers=headers)
         resp.raise_for_status()
