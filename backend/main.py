@@ -116,6 +116,7 @@ async def save_settings_post(
     diary_tag: str = Form("日记"),
     glossary: str = Form(""),
     organize_model: str = Form(""),
+    llm_think: str = Form(""),
 ):
     save_settings({
         "memos_url": memos_url,
@@ -127,6 +128,7 @@ async def save_settings_post(
         "diary_tag": diary_tag.strip().lstrip("#") or "日记",
         "glossary": glossary,
         "organize_model": organize_model.strip(),
+        "llm_think": "1" if llm_think == "1" else "0",
     })
     cfg = get_settings()
     return templates.TemplateResponse("settings.html", {"request": request, "cfg": cfg, "saved": True})
@@ -165,6 +167,7 @@ async def run_job(job_id: int, content: str, ui_date: str):
     llm_args = dict(
         prompt_template=cfg["prompt"], url=cfg["llm_url"],
         api_key=cfg["llm_api_key"], model=model, glossary=cfg.get("glossary", ""),
+        think=cfg.get("llm_think") == "1",
     )
     try:
         entries = await split_and_polish(content=content, default_date=ui_date, **llm_args)
@@ -264,6 +267,7 @@ async def run_scan(batch: list, cfg: dict, existing_tags: str):
             result = await classify_memo(
                 content=m["content"], created=created, existing_tags=existing_tags,
                 url=cfg["llm_url"], api_key=cfg["llm_api_key"], model=model,
+                think=cfg.get("llm_think") == "1",
             )
             result = _date_prefix_fallback(result, m["content"], created)
             result["current_date"] = created

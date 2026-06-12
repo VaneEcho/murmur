@@ -57,6 +57,11 @@
       {% if cfg.organize_model %}<option value="{{ cfg.organize_model }}" selected>{{ cfg.organize_model }}</option>{% endif %}
     </select>
 
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer;">
+      <input type="checkbox" name="llm_think" value="1" {% if cfg.llm_think == '1' %}checked{% endif %} style="width:18px;height:18px;">
+      思考模式（仅本地 Ollama 推理模型有效，会显著增加耗时）
+    </label>
+
     <div class="section-title">日记</div>
     <label>标签</label>
     <input type="text" name="diary_tag" value="{{ cfg.diary_tag }}">

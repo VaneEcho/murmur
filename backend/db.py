@@ -35,6 +35,7 @@ DEFAULT_SETTINGS = {
     "diary_tag": "日记",
     "glossary": "",
     "organize_model": "",
+    "llm_think": "0",
 }
 
 
