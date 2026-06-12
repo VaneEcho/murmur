@@ -48,10 +48,14 @@
     <input type="password" name="llm_api_key" id="llm_api_key" value="{{ cfg.llm_api_key }}">
     <button type="button" class="minor" id="models-btn" onclick="fetchModels()">拉取模型</button>
     <label>模型</label>
-    <input type="text" name="llm_model" list="model-list" value="{{ cfg.llm_model }}">
+    <select name="llm_model" id="llm_model" style="width:100%;padding:10px 12px;border:1px solid #e0e0e0;border-radius:10px;font-size:16px;margin-bottom:14px;background:white;">
+      {% if cfg.llm_model %}<option value="{{ cfg.llm_model }}">{{ cfg.llm_model }}</option>{% endif %}
+    </select>
     <label>整理模型（可选）</label>
-    <input type="text" name="organize_model" list="model-list" value="{{ cfg.organize_model }}">
-    <datalist id="model-list"></datalist>
+    <select name="organize_model" id="organize_model" style="width:100%;padding:10px 12px;border:1px solid #e0e0e0;border-radius:10px;font-size:16px;margin-bottom:14px;background:white;">
+      <option value="">（同上）</option>
+      {% if cfg.organize_model %}<option value="{{ cfg.organize_model }}" selected>{{ cfg.organize_model }}</option>{% endif %}
+    </select>
 
     <div class="section-title">日记</div>
     <label>标签</label>
@@ -86,9 +90,13 @@ async function fetchModels() {
     const data = await resp.json();
     if (!data.ok) { alert(data.error); }
     else {
-      document.getElementById('model-list').innerHTML =
-        data.models.map(m => `<option value="${m}">`).join('');
-      btn.textContent = `已拉取 ${data.models.length} 个，点模型框选择`;
+      const current1 = document.getElementById('llm_model').value;
+      const current2 = document.getElementById('organize_model').value;
+      const opts = data.models.map(m => `<option value="${m}"${m===current1?' selected':''}>${m}</option>`).join('');
+      const opts2 = '<option value="">（同上）</option>' + data.models.map(m => `<option value="${m}"${m===current2?' selected':''}>${m}</option>`).join('');
+      document.getElementById('llm_model').innerHTML = opts;
+      document.getElementById('organize_model').innerHTML = opts2;
+      btn.textContent = `已拉取 ${data.models.length} 个`;
       btn.disabled = false;
       return;
     }
