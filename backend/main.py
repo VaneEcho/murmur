@@ -18,7 +18,7 @@ from backend.db import (
     upsert_proposal, list_proposals, proposal_memo_names,
     set_proposal_status, get_proposal,
 )
-from backend.llm import split_and_polish, merge_rewrite, suggest_glossary, classify_memo, list_models
+from backend.llm import split_and_polish, merge_rewrite, classify_memo, list_models
 from backend.memos import (
     create_memo, update_memo_content, list_diary, list_all_memos,
     set_display_time, written_dates,
@@ -468,27 +468,3 @@ async def models(request: Request):
     return JSONResponse({"ok": True, "models": ids})
 
 
-@app.post("/api/glossary/suggest")
-async def glossary_suggest():
-    cfg = get_settings()
-    if err := _config_error(cfg):
-        return JSONResponse({"ok": False, "error": err}, status_code=400)
-    try:
-        diary = await list_diary(cfg["memos_url"], cfg["memos_token"], cfg["diary_tag"])
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": f"读取 Memos 失败：{e}"}, status_code=500)
-    if not diary:
-        return JSONResponse({"ok": False, "error": "还没有日记记录，无法提取"}, status_code=400)
-
-    texts = "\n---\n".join(d["content"].replace(f"#{cfg['diary_tag']}", "").strip() for d in diary[:30])
-    try:
-        terms = await suggest_glossary(
-            texts=texts,
-            current_glossary=cfg.get("glossary", ""),
-            url=cfg["llm_url"],
-            api_key=cfg["llm_api_key"],
-            model=cfg.get("llm_model") or "gpt-4o-mini",
-        )
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": f"AI 提取失败：{e}"}, status_code=500)
-    return JSONResponse({"ok": True, "terms": terms})

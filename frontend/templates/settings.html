@@ -59,7 +59,7 @@
 
     <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer;">
       <input type="checkbox" name="llm_think" value="1" {% if cfg.llm_think == '1' %}checked{% endif %} style="width:18px;height:18px;">
-      思考模式（仅本地 Ollama 推理模型有效，会显著增加耗时）
+      思考模式
     </label>
 
     <div class="section-title">日记</div>
@@ -67,10 +67,6 @@
     <input type="text" name="diary_tag" value="{{ cfg.diary_tag }}">
     <label>词表</label>
     <textarea name="glossary" id="glossary" style="min-height: 100px; font-family: inherit;">{{ cfg.glossary }}</textarea>
-    <button type="button" class="minor" id="suggest-btn" onclick="suggestGlossary()">从历史提取</button>
-    <div id="suggest-area" style="display:none; margin-bottom:14px;">
-      <div id="suggest-chips" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
-    </div>
 
     <div class="section-title">提示词</div>
     <p class="hint">变量：{content} {date}</p>
@@ -109,35 +105,6 @@ async function fetchModels() {
   btn.disabled = false; btn.textContent = '拉取模型';
 }
 
-async function suggestGlossary() {
-  const btn = document.getElementById('suggest-btn');
-  btn.disabled = true; btn.textContent = '提取中';
-  try {
-    const resp = await fetch('/api/glossary/suggest', { method: 'POST' });
-    const data = await resp.json();
-    if (!data.ok) { alert(data.error); }
-    else if (!data.terms.length) { alert('无新候选'); }
-    else {
-      const chips = document.getElementById('suggest-chips');
-      chips.innerHTML = '';
-      data.terms.forEach(t => {
-        const el = document.createElement('span');
-        el.textContent = '+ ' + t;
-        el.style.cssText = 'padding:6px 12px;border-radius:999px;background:#eef4ff;color:#3a6fd0;font-size:0.85rem;cursor:pointer;';
-        el.onclick = () => {
-          const g = document.getElementById('glossary');
-          if (!g.value.split('\n').map(s => s.trim()).includes(t)) {
-            g.value = (g.value.trim() ? g.value.trim() + '\n' : '') + t;
-          }
-          el.remove();
-        };
-        chips.appendChild(el);
-      });
-      document.getElementById('suggest-area').style.display = 'block';
-    }
-  } catch (e) { alert(e.message); }
-  btn.disabled = false; btn.textContent = '从历史提取';
-}
 </script>
 </body>
 </html>
