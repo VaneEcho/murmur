@@ -2,7 +2,7 @@ services:
   murmur:
     build: .
     ports:
-      - "8080:8080"
+      - "${MURMUR_PORT:-5330}:8080"
     env_file: .env
     volumes:
       - ./data:/app/data
