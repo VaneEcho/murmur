@@ -118,11 +118,12 @@ async def save_settings_post(
     organize_model: str = Form(""),
     llm_think: str = Form(""),
 ):
+    existing = get_settings()
     save_settings({
         "memos_url": memos_url,
-        "memos_token": memos_token,
+        "memos_token": memos_token or existing.get("memos_token", ""),
         "llm_url": llm_url,
-        "llm_api_key": llm_api_key,
+        "llm_api_key": llm_api_key or existing.get("llm_api_key", ""),
         "llm_model": llm_model,
         "prompt": prompt,
         "diary_tag": diary_tag.strip().lstrip("#") or "日记",
@@ -468,3 +469,11 @@ async def models(request: Request):
     return JSONResponse({"ok": True, "models": ids})
 
 
+
+
+@app.post("/api/glossary")
+async def save_glossary(request: Request):
+    body = await request.json()
+    terms = [t.strip() for t in (body.get("terms") or []) if str(t).strip()]
+    save_settings({"glossary": "\n".join(terms)})
+    return JSONResponse({"ok": True})
