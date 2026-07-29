@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>回看 — Murmur</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8f9fa; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 20px 12px; }
+  h1 { font-size: 1.4rem; font-weight: 600; color: #1a1a1a; margin-bottom: 16px; }
+  .nav { width: 100%; max-width: 640px; text-align: left; margin-bottom: 12px; }
+  .nav a { color: #888; font-size: 0.85rem; text-decoration: none; }
+  .item { background: white; border-radius: 14px; padding: 14px; width: 100%; max-width: 640px; margin-bottom: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.05); }
+  .item .head { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .item .date { font-weight: 600; color: #1a1a1a; font-size: 0.95rem; }
+  .item .weekday { color: #999; font-size: 0.82rem; }
+  .item .snippet { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #999; font-size: 0.85rem; }
+  .item .body { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
+  .item.open .body { display: block; }
+  .item .text { white-space: pre-wrap; word-break: break-word; color: #555; font-size: 0.9rem; line-height: 1.7; }
+  textarea { width: 100%; padding: 10px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 16px; line-height: 1.6; min-height: 130px; resize: vertical; outline: none; }
+  textarea:focus { border-color: #4f8ef7; }
+  .ops { display: flex; gap: 8px; margin-top: 8px; justify-content: flex-end; }
+  .ops button { padding: 8px 18px; border: none; border-radius: 8px; font-size: 0.88rem; font-weight: 600; cursor: pointer; }
+  .ops .edit-btn { background: #eef4ff; color: #3a6fd0; }
+  .ops .save-btn { background: #4f8ef7; color: white; }
+  .ops .cancel-btn { background: #f0f0f0; color: #777; }
+  .ops button:disabled { opacity: 0.5; cursor: default; }
+  #status { width: 100%; max-width: 640px; color: #999; font-size: 0.9rem; margin-top: 20px; text-align: center; }
+</style>
+</head>
+<body>
+<h1>日记回看</h1>
+<div class="nav"><a href="/">← 返回</a></div>
+<div id="list"></div>
+<div id="status">加载中</div>
+<script>
+const list = document.getElementById('list');
+const status = document.getElementById('status');
+
+function escapeHtml(s) { const el = document.createElement('span'); el.textContent = s || ''; return el.innerHTML; }
+
+async function load() {
+  try {
+    const resp = await fetch('/api/history');
+    const data = await resp.json();
+    if (!data.ok) { status.textContent = data.error; return; }
+    if (!data.items.length) { status.textContent = '最近 30 天没有日记'; return; }
+    status.style.display = 'none';
+    list.innerHTML = data.items.map(it => `
+      <div class="item" data-name="${it.name}">
+        <div class="head" onclick="this.parentElement.classList.toggle('open')">
+          <span class="date">${it.date.slice(5).replace('-', '/')}</span>
+          <span class="weekday">${it.weekday}</span>
+          <span class="snippet">${escapeHtml(it.text.slice(0, 40))}</span>
+        </div>
+        <div class="body">
+          <div class="text" id="view-${it.name.replaceAll('/', '-')}">${escapeHtml(it.text)}</div>
+          <div class="ops">
+            <button class="edit-btn" onclick="startEdit(this, '${it.name}')">编辑</button>
+          </div>
+        </div>
+      </div>`).join('');
+    // 把正文存到 dataset 方便编辑时取用，避免 HTML 转义问题
+    data.items.forEach(it => {
+      const el = document.querySelector(`.item[data-name="${it.name}"]`);
+      if (el) el.dataset.date = it.date;
+    });
+  } catch (e) { status.textContent = '加载失败：' + e.message; }
+}
+
+function startEdit(btn, name) {
+  const item = btn.closest('.item');
+  const body = item.querySelector('.body');
+  const view = body.querySelector('.text');
+  const current = view.textContent;
+  body.innerHTML = `
+    <textarea id="ta">${escapeHtml(current)}</textarea>
+    <div class="ops">
+      <button class="cancel-btn" onclick="cancelEdit('${name}')">取消</button>
+      <button class="save-btn" onclick="saveEdit(this, '${name}')">保存</button>
+    </div>`;
+  body.querySelector('textarea').focus();
+}
+
+async function cancelEdit(name) { await load(); itemOpen(name); }
+
+function itemOpen(name) {
+  // load() 重渲染后把刚编辑的条目保持展开
+  const el = document.querySelector(`.item[data-name="${name}"]`);
+  if (el) el.classList.add('open');
+}
+
+async function saveEdit(btn, name) {
+  const item = btn.closest('.item');
+  const text = item.querySelector('textarea').value.trim();
+  if (!text) { alert('内容为空'); return; }
+  btn.disabled = true; btn.textContent = '保存中';
+  try {
+    const resp = await fetch('/api/history/update', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ name, date: item.dataset.date, text }),
+    });
+    const data = await resp.json();
+    if (!data.ok) { alert(data.error); btn.disabled = false; btn.textContent = '保存'; return; }
+    await load();
+    itemOpen(name);
+  } catch (e) {
+    alert('保存失败：' + e.message);
+    btn.disabled = false; btn.textContent = '保存';
+  }
+}
+
+load();
+</script>
+</body>
+</html>

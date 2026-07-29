@@ -51,7 +51,7 @@
 </head>
 <body>
 <h1>Murmur</h1>
-<div class="nav"><a href="/organize">整理</a><a href="/settings">设置</a></div>
+<div class="nav"><a href="/history">回看</a><a href="/organize">整理</a><a href="/settings">设置</a></div>
 <div id="statusbar"></div>
 <div id="draftbar"></div>
 <div class="card">
@@ -64,8 +64,18 @@
 </div>
 <div id="jobs"></div>
 <script>
-let pollTimer = null;
 let pendingDraftId = null;
+
+// WebSocket 实时接收任务状态，替代轮询；断线自动重连
+function connectWs() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'jobs') renderJobs(msg.jobs);
+  };
+  ws.onclose = () => { setTimeout(connectWs, 2000); };
+}
 
 async function loadStatus() {
   const bar = document.getElementById('statusbar');
@@ -113,7 +123,6 @@ function restoreDraft(id, el) {
 
 async function deleteJob(id) {
   await fetch('/api/jobs/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id }) });
-  loadJobs();
 }
 
 async function deleteDraft(id) {
@@ -144,7 +153,6 @@ async function submit() {
       document.getElementById('content').value = '';
       if (pendingDraftId) { deleteDraft(pendingDraftId); pendingDraftId = null; }
       showResult('success', '已提交');
-      loadJobs();
     } else {
       showResult('error', data.error || '未知错误');
     }
@@ -152,42 +160,33 @@ async function submit() {
   btn.disabled = false;
 }
 
-async function loadJobs() {
+function renderJobs(jobs) {
   const box = document.getElementById('jobs');
-  try {
-    const resp = await fetch('/api/jobs');
-    const data = await resp.json();
-    if (!data.ok || !data.jobs.length) { box.innerHTML = ''; return; }
-    const open = new Set([...document.querySelectorAll('.job.open')].map(el => el.dataset.id));
-    box.innerHTML = data.jobs.map(j => {
-      let st, cls, detail = '';
-      if (j.status === 'pending' || j.status === 'processing') {
-        st = '处理中'; cls = 'run';
-      } else if (j.status === 'done') {
-        st = j.result.map(r => r.date).filter(Boolean).join(' ') || '完成'; cls = 'ok';
-        detail = j.result.map(r => `${r.date}${r.action === 'merged' ? '（合并）' : ''}\n${r.text}`).join('\n\n');
-      } else {
-        st = '失败'; cls = 'err';
-        detail = j.error || '';
-      }
-      const delBtn = (j.status === 'done' || j.status === 'error')
-        ? `<span class="del" onclick="event.stopPropagation(); deleteJob(${j.id})">✕</span>` : '';
-      return `<div class="job ${open.has(String(j.id)) ? 'open' : ''}" data-id="${j.id}">
-        <div class="head" onclick="this.parentElement.classList.toggle('open')">
-          <span class="st ${cls}">${st}</span>
-          <span class="snippet">${escapeHtml(j.content.slice(0, 24))}</span>${delBtn}
-        </div>
-        <div class="detail">${escapeHtml(detail) || escapeHtml(j.content)}</div>
-      </div>`;
-    }).join('');
-    const hasActive = data.jobs.some(j => j.status === 'pending' || j.status === 'processing');
-    clearTimeout(pollTimer);
-    if (hasActive) {
-      pollTimer = setTimeout(loadJobs, 4000);
+  if (!jobs.length) { box.innerHTML = ''; return; }
+  const open = new Set([...document.querySelectorAll('.job.open')].map(el => el.dataset.id));
+  box.innerHTML = jobs.map(j => {
+    let st, cls, detail = '';
+    if (j.status === 'pending' || j.status === 'processing') {
+      st = '处理中'; cls = 'run';
+    } else if (j.status === 'done') {
+      st = j.result.map(r => r.date).filter(Boolean).join(' ') || '完成'; cls = 'ok';
+      detail = j.result.map(r => `${r.date}${r.action === 'merged' ? '（合并）' : ''}\n${r.text}`).join('\n\n');
     } else {
-      loadStatus(); loadDrafts();
+      st = '失败'; cls = 'err';
+      detail = j.error || '';
     }
-  } catch (e) { /* 忽略轮询错误 */ }
+    const delBtn = (j.status === 'done' || j.status === 'error')
+      ? `<span class="del" onclick="event.stopPropagation(); deleteJob(${j.id})">✕</span>` : '';
+    return `<div class="job ${open.has(String(j.id)) ? 'open' : ''}" data-id="${j.id}">
+      <div class="head" onclick="this.parentElement.classList.toggle('open')">
+        <span class="st ${cls}">${st}</span>
+        <span class="snippet">${escapeHtml(j.content.slice(0, 24))}</span>${delBtn}
+      </div>
+      <div class="detail">${escapeHtml(detail) || escapeHtml(j.content)}</div>
+    </div>`;
+  }).join('');
+  const hasActive = jobs.some(j => j.status === 'pending' || j.status === 'processing');
+  if (!hasActive) { loadStatus(); loadDrafts(); }
 }
 
 function showResult(type, msg) {
@@ -198,7 +197,7 @@ function showResult(type, msg) {
 
 loadStatus();
 loadDrafts();
-loadJobs();
+connectWs();
 </script>
 </body>
 </html>

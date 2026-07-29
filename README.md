@@ -10,8 +10,10 @@
 - **多天拆分**：一次口述里讲了好几天的内容，按日期自动拆条归位（设置 displayTime，Memos 时间线顺序正确）
 - **空缺提醒**：主页显示近两周哪几天没写，点日期块直接补写
 - **同日合并**：当天已有记录时自动合并整理为一条
-- **错字词表**：常用人名、地名等专有名词表，AI 据此校正语音输入的同音错字；可从历史日记一键提取候选词
+- **错字词表**：常用人名、地名等专有名词表，AI 据此校正语音输入的同音错字；整理旧记录时自动收集新词
 - **失败暂存**：AI 或 Memos 调用失败时原文自动存为草稿，可一键恢复重试
+- **日记回看**（/history）：查看最近 30 天的日记，可直接编辑修改
+- **实时状态**：任务和整理进度通过 WebSocket 实时推送，无需等待轮询
 - **整理旧记录**（/organize）：扫描库里没有标签的旧 memo，AI 分类为日记/笔记/密码，日记修正发布日期并轻度润色，笔记/密码只打标签不动原文；所有改动需人工勾选确认
 - **PWA**：手机浏览器"添加到主屏幕"后像 App 一样用
 
@@ -24,7 +26,7 @@ cp .env.example .env   # 如需密码登录，设置 MURMUR_PASSWORD
 docker compose up -d
 ```
 
-打开 `http://服务器IP:8080/settings`，填写：
+打开 `http://服务器IP:5330/settings`，填写：
 
 | 配置 | 说明 |
 |---|---|
@@ -36,8 +38,9 @@ docker compose up -d
 本地开发：
 
 ```bash
-pip install -r requirements.txt
-python3 -m uvicorn backend.main:app --reload --port 8080
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m uvicorn backend.main:app --reload --port 8080
 ```
 
 ## 注意事项

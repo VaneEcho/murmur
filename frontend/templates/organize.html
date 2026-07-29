@@ -45,7 +45,16 @@
 <div id="empty" style="display:none;">暂无待确认项</div>
 <div id="applybar"><button onclick="applySelected()">应用选中</button></div>
 <script>
-let pollTimer = null;
+// WebSocket 实时接收扫描状态和提议列表，替代轮询；断线自动重连
+function connectWs() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'scan') renderScan(msg);
+  };
+  ws.onclose = () => { setTimeout(connectWs, 2000); };
+}
 
 async function scan(continuous) {
   setScanButtons(true);
@@ -57,7 +66,6 @@ async function scan(continuous) {
     const data = await resp.json();
     if (!data.ok) { alert(data.error); setScanButtons(false); return; }
     if (data.message) { document.getElementById('progress').textContent = data.message; setScanButtons(false); return; }
-    poll();
   } catch (e) { alert(e.message); setScanButtons(false); }
 }
 
@@ -71,16 +79,13 @@ function setScanButtons(running) {
   document.getElementById('stop-btn').style.display = running ? 'inline-block' : 'none';
 }
 
-async function poll() {
-  const resp = await fetch('/api/organize/list');
-  const data = await resp.json();
+function renderScan(data) {
   render(data);
   const s = data.scan;
   const prog = document.getElementById('progress');
   if (s.running) {
     setScanButtons(true);
     prog.textContent = `${s.done}/${s.total}，余 ${s.remaining}`;
-    pollTimer = setTimeout(poll, 4000);
   } else {
     setScanButtons(false);
     prog.textContent = s.error ? ('出错：' + s.error) : (s.total ? `完成，余 ${s.remaining}` : '');
@@ -115,16 +120,16 @@ function render(data) {
       </div>
       <div class="orig">${escapeHtml(p.content)}</div>
       ${body}
-      ${p.terms && p.terms.length ? `<div class="terms" data-terms="${p.terms.map(escapeHtml).join('、')}">词表：${p.terms.map(escapeHtml).join('、')}</div>` : ''}
+      ${p.terms && p.terms.length ? `<div class="terms" data-terms="${escapeAttr(p.terms.join('、'))}">词表：${p.terms.map(escapeHtml).join('、')}</div>` : ''}
     </div>`;
   }).join('');
 }
 
 function escapeHtml(s) { const el = document.createElement('span'); el.textContent = s || ''; return el.innerHTML; }
+function escapeAttr(s) { return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 async function skip(id) {
   await fetch('/api/organize/skip', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id }) });
-  poll();
 }
 
 async function applySelected() {
@@ -154,10 +159,9 @@ async function applySelected() {
   });
   const data = await resp.json();
   alert(data.ok ? `已应用 ${data.applied} 条` : `部分失败：\n${(data.errors||[]).join('\n')}`);
-  poll();
 }
 
-poll();
+connectWs();
 </script>
 </body>
 </html>

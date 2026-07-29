@@ -11,6 +11,14 @@ def _headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
+async def check_connection(url: str, token: str):
+    """拉一条 memo 验证地址和 Token 是否可用（设置页"测试连接"用）。"""
+    base = url.rstrip("/")
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(f"{base}/api/v1/memos", params={"pageSize": 1}, headers=_headers(token))
+        resp.raise_for_status()
+
+
 async def create_memo(content: str, url: str, token: str, display_date: str | None = None) -> dict:
     """创建 memo；若指定日期则把显示时间调到目标日期，使 Memos 时间线顺序正确。"""
     base = url.rstrip("/")

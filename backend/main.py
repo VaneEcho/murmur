@@ -4,10 +4,13 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 from datetime import date as date_cls, timedelta
 
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request, Form, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -21,10 +24,17 @@ from backend.db import (
 from backend.llm import split_and_polish, merge_rewrite, classify_memo, list_models
 from backend.memos import (
     create_memo, update_memo_content, list_diary, list_all_memos,
-    set_display_time, written_dates,
+    set_display_time, written_dates, check_connection,
 )
+from backend.ws import manager
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    for job in recover_stale_jobs():
+        save_draft(job["content"], job["date"])
+    yield
+
+app = FastAPI(lifespan=lifespan)
 _root = os.path.join(os.path.dirname(__file__), "..")
 templates = Jinja2Templates(directory=os.path.join(_root, "frontend", "templates"))
 app.mount("/static", StaticFiles(directory=os.path.join(_root, "frontend", "static")), name="static")
@@ -42,14 +52,34 @@ def spawn(coro):
     task.add_done_callback(_background_tasks.discard)
     return task
 
+
+def _jobs_payload() -> dict:
+    items = list_jobs()
+    for it in items:
+        it["result"] = json.loads(it["result"]) if it["result"] else []
+    return {"type": "jobs", "jobs": items}
+
+
+def _scan_payload() -> dict:
+    items = []
+    for p in list_proposals("proposed"):
+        prop = json.loads(p["proposal"])
+        items.append({
+            "id": p["id"], "memo_name": p["memo_name"],
+            "content": p["content"], **prop,
+        })
+    return {"type": "scan", "scan": dict(_scan_state), "proposals": items}
+
+
+async def notify_jobs():
+    await manager.broadcast(_jobs_payload())
+
+
+async def notify_scan():
+    await manager.broadcast(_scan_payload())
+
 PASSWORD = os.environ.get("MURMUR_PASSWORD", "")
 COOKIE_NAME = "murmur_auth"
-
-
-@app.on_event("startup")
-async def recover_jobs():
-    for job in recover_stale_jobs():
-        save_draft(job["content"], job["date"])
 
 
 def _auth_token() -> str:
@@ -81,6 +111,22 @@ async def login(request: Request, password: str = Form("")):
     return resp
 
 
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    """页面通过 WebSocket 接收任务和扫描状态推送（HTTP 中间件不覆盖 WS，需自行鉴权）。"""
+    if PASSWORD and ws.cookies.get(COOKIE_NAME) != _auth_token():
+        await ws.close(code=4401)
+        return
+    await manager.connect(ws)
+    try:
+        await ws.send_json(_jobs_payload())
+        await ws.send_json(_scan_payload())
+        while True:
+            await ws.receive_text()  # 保持连接，客户端不主动发消息
+    except (WebSocketDisconnect, RuntimeError):
+        manager.disconnect(ws)
+
+
 def _config_error(cfg: dict) -> str | None:
     missing = [k for k in ("memos_url", "memos_token", "llm_url", "llm_api_key") if not cfg.get(k)]
     if missing:
@@ -91,6 +137,18 @@ def _config_error(cfg: dict) -> str | None:
 def _with_header(polished: str, d: str, tag: str) -> str:
     weekday = WEEKDAYS[date_cls.fromisoformat(d).weekday()]
     return f"{d} {weekday}\n\n{polished}\n\n#{tag}"
+
+
+def _strip_header(content: str, tag: str) -> str:
+    """去掉 _with_header 加上的日期抬头和结尾标签，返回纯正文供编辑。"""
+    body = content.strip()
+    first, _, rest = body.partition("\n")
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}\s+周[一二三四五六日天]", first.strip()):
+        body = rest.strip()
+    suffix = f"#{tag}"
+    if body.rstrip().endswith(suffix):
+        body = body.rstrip()[: -len(suffix)].rstrip()
+    return body
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -162,6 +220,7 @@ async def status():
 async def run_job(job_id: int, content: str, ui_date: str):
     """后台执行：AI 拆分整理 → 逐条检查冲突（自动合并）→ 写入 Memos。"""
     update_job(job_id, "processing")
+    await notify_jobs()
     cfg = get_settings()
     tag = cfg["diary_tag"]
     model = cfg.get("llm_model") or "gpt-4o-mini"
@@ -175,6 +234,7 @@ async def run_job(job_id: int, content: str, ui_date: str):
     except Exception as e:
         save_draft(content, ui_date)
         update_job(job_id, "error", error=f"AI 整理失败：{e}（原文已转入草稿）")
+        await notify_jobs()
         return
 
     results = []
@@ -200,9 +260,11 @@ async def run_job(job_id: int, content: str, ui_date: str):
         note = f"（已完成：{done}）" if done else "（原文已转入草稿）"
         update_job(job_id, "error", result=json.dumps(results, ensure_ascii=False),
                    error=f"发布失败：{e}{note}")
+        await notify_jobs()
         return
 
     update_job(job_id, "done", result=json.dumps(results, ensure_ascii=False))
+    await notify_jobs()
 
 
 @app.post("/api/submit")
@@ -218,6 +280,7 @@ async def submit(request: Request):
 
     job_id = create_job(content, ui_date)
     spawn(run_job(job_id, content, ui_date))
+    await notify_jobs()
     return JSONResponse({"ok": True, "job_id": job_id})
 
 
@@ -233,6 +296,7 @@ async def jobs():
 async def jobs_delete(request: Request):
     body = await request.json()
     delete_job(int(body.get("id", 0)))
+    await notify_jobs()
     return JSONResponse({"ok": True})
 
 
@@ -245,6 +309,60 @@ async def drafts():
 async def drafts_delete(request: Request):
     body = await request.json()
     delete_draft(int(body.get("id", 0)))
+    return JSONResponse({"ok": True})
+
+
+HISTORY_DAYS = 30
+
+
+@app.get("/history", response_class=HTMLResponse)
+async def history_page(request: Request):
+    return templates.TemplateResponse("history.html", {"request": request})
+
+
+@app.get("/api/history")
+async def history():
+    """最近 HISTORY_DAYS 天的日记（去掉日期抬头和标签的纯正文），按日期倒序。"""
+    cfg = get_settings()
+    if err := _config_error(cfg):
+        return JSONResponse({"ok": False, "error": err}, status_code=400)
+    try:
+        diary = await list_diary(cfg["memos_url"], cfg["memos_token"], cfg["diary_tag"])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"读取 Memos 失败：{e}"}, status_code=500)
+    cutoff = str(date_cls.today() - timedelta(days=HISTORY_DAYS - 1))
+    tag = cfg["diary_tag"]
+    items = [
+        {"name": d["name"], "date": d["date"],
+         "weekday": WEEKDAYS[date_cls.fromisoformat(d["date"]).weekday()],
+         "text": _strip_header(d["content"], tag)}
+        for d in diary if d["date"] >= cutoff
+    ]
+    return JSONResponse({"ok": True, "items": items})
+
+
+@app.post("/api/history/update")
+async def history_update(request: Request):
+    """编辑某天的日记正文。日期抬头和标签由服务端重新生成。"""
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    d = (body.get("date") or "").strip()
+    text = (body.get("text") or "").strip()
+    if not name or not text:
+        return JSONResponse({"ok": False, "error": "参数不完整"}, status_code=400)
+    try:
+        date_cls.fromisoformat(d)
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "日期格式不对"}, status_code=400)
+    cfg = get_settings()
+    if err := _config_error(cfg):
+        return JSONResponse({"ok": False, "error": err}, status_code=400)
+    tag = cfg["diary_tag"]
+    try:
+        await update_memo_content(name, _with_header(text, d, tag),
+                                  cfg["memos_url"], cfg["memos_token"])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"保存失败：{e}"}, status_code=500)
     return JSONResponse({"ok": True})
 
 
@@ -275,16 +393,17 @@ async def run_scan(batch: list, cfg: dict, existing_tags: str):
             upsert_proposal(m["name"], m["content"], json.dumps(result, ensure_ascii=False))
             _scan_state["done"] += 1
             _scan_state["remaining"] = max(0, _scan_state["remaining"] - 1)
+            await notify_scan()
     except Exception as e:
         _scan_state["error"] = str(e)
     finally:
         _scan_state["running"] = False
         _scan_state["stop"] = False
+        await notify_scan()
 
 
 def _collect_tags(memos: list) -> str:
     """统计全部 memo 里出现过的标签，按频次取前 30 个。"""
-    import re
     from collections import Counter
     counter = Counter()
     for m in memos:
@@ -297,7 +416,6 @@ _DATE_PREFIX = None
 
 def _date_prefix_fallback(result: dict, content: str, created: str) -> dict:
     """确定性兜底：以「X月X日」开头的记录必为日记，不依赖 AI 判断。"""
-    import re
     global _DATE_PREFIX
     if _DATE_PREFIX is None:
         _DATE_PREFIX = re.compile(r"^\s*(\d{1,2})月(\d{1,2})[日号]")
@@ -352,6 +470,7 @@ async def organize_scan(request: Request):
     _scan_state.update({"running": True, "done": 0, "total": len(batch),
                         "remaining": len(candidates) - len(batch), "error": None, "stop": False})
     spawn(run_scan(batch, cfg, _collect_tags(memos)))
+    await notify_scan()
     return JSONResponse({"ok": True, "started": len(batch), "remaining": len(candidates) - len(batch)})
 
 
@@ -432,6 +551,7 @@ async def organize_apply(request: Request):
         except Exception as e:
             errors.append(f"#{p['id']}: {e}")
 
+    new_terms = []
     if all_terms:
         glossary = cfg.get("glossary", "")
         existing = {line.strip() for line in glossary.splitlines() if line.strip()}
@@ -439,15 +559,49 @@ async def organize_apply(request: Request):
         if new_terms:
             save_settings({"glossary": (glossary.strip() + "\n" if glossary.strip() else "") + "\n".join(new_terms)})
 
+    await notify_scan()
     return JSONResponse({"ok": not errors, "applied": len(applied),
-                         "errors": errors, "terms_added": len(all_terms)})
+                         "errors": errors, "terms_added": len(new_terms)})
 
 
 @app.post("/api/organize/skip")
 async def organize_skip(request: Request):
     body = await request.json()
     set_proposal_status(int(body.get("id", 0)), "skipped")
+    await notify_scan()
     return JSONResponse({"ok": True})
+
+
+@app.post("/api/test-connection")
+async def test_connection(request: Request):
+    """测试 Memos 和 LLM 配置是否可用。优先用请求里带的值（无需先保存）。"""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    cfg = get_settings()
+    memos_url = (body.get("memos_url") or "").strip() or cfg.get("memos_url", "")
+    memos_token = (body.get("memos_token") or "").strip() or cfg.get("memos_token", "")
+    llm_url = (body.get("llm_url") or "").strip() or cfg.get("llm_url", "")
+    llm_key = (body.get("llm_api_key") or "").strip() or cfg.get("llm_api_key", "")
+    results = {}
+    if not memos_url:
+        results["memos"] = {"ok": False, "error": "未填写地址"}
+    else:
+        try:
+            await check_connection(memos_url, memos_token)
+            results["memos"] = {"ok": True}
+        except Exception as e:
+            results["memos"] = {"ok": False, "error": str(e)}
+    if not llm_url:
+        results["llm"] = {"ok": False, "error": "未填写地址"}
+    else:
+        try:
+            ids = await list_models(llm_url, llm_key)
+            results["llm"] = {"ok": True, "models": len(ids)}
+        except Exception as e:
+            results["llm"] = {"ok": False, "error": str(e)}
+    return JSONResponse({"ok": True, "results": results})
 
 
 @app.post("/api/models")
@@ -477,3 +631,14 @@ async def save_glossary(request: Request):
     terms = [t.strip() for t in (body.get("terms") or []) if str(t).strip()]
     save_settings({"glossary": "\n".join(terms)})
     return JSONResponse({"ok": True})
+
+
+@app.get("/api/glossary/export")
+async def glossary_export():
+    """导出词表为 TXT（一行一词），导入在设置页前端完成。"""
+    cfg = get_settings()
+    text = cfg.get("glossary", "").strip() + "\n"
+    return PlainTextResponse(
+        text,
+        headers={"Content-Disposition": "attachment; filename=glossary.txt"},
+    )

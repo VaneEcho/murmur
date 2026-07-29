@@ -42,6 +42,9 @@
   .glossary-add input { flex: 1; margin-bottom: 0; }
   .glossary-add button { width: auto; padding: 10px 16px; font-size: 0.9rem; font-weight: 500; }
   .glossary-saved { font-size: 0.78rem; color: #2e7d52; margin-top: 6px; min-height: 1.2em; }
+  .glossary-io { display: flex; gap: 18px; margin: 10px 0 4px; font-size: 0.85rem; }
+  .glossary-io a, .glossary-io label { color: #4f8ef7; text-decoration: none; cursor: pointer; }
+  .glossary-io a:hover, .glossary-io label:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -66,6 +69,8 @@
       <input type="password" name="llm_api_key" id="llm_api_key" placeholder="留空则保持不变">
       {% if cfg.llm_api_key %}<span class="set-badge">已设置</span>{% endif %}
     </div>
+    <button type="button" class="minor" id="test-btn" onclick="testConnection()">测试连接</button>
+    <p class="hint" id="test-result"></p>
     <button type="button" class="minor" id="models-btn" onclick="fetchModels()">拉取模型</button>
     <label>模型</label>
     <select name="llm_model" id="llm_model" style="width:100%;padding:10px 12px;border:1px solid #e0e0e0;border-radius:10px;font-size:16px;margin-bottom:14px;background:white;">
@@ -91,6 +96,10 @@
     <div class="glossary-add">
       <input type="text" id="glossary-input" placeholder="添加词条" onkeydown="if(event.key==='Enter'){event.preventDefault();addTerm();}">
       <button type="button" onclick="addTerm()">添加</button>
+    </div>
+    <div class="glossary-io">
+      <a href="/api/glossary/export" download="glossary.txt">导出 TXT</a>
+      <label>导入 TXT（追加去重）<input type="file" accept=".txt,text/plain" style="display:none" onchange="importGlossary(this)"></label>
     </div>
     <div class="glossary-saved" id="glossary-saved"></div>
 
@@ -159,6 +168,56 @@ async function saveGlossary() {
 }
 
 renderChips();
+
+async function importGlossary(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const text = await file.text();
+  input.value = '';
+  let n = 0;
+  for (const t of text.split('\n').map(s => s.trim()).filter(Boolean)) {
+    if (!terms.includes(t)) { terms.push(t); n++; }
+  }
+  renderChips();
+  clearTimeout(saveTimer);
+  const msg = document.getElementById('glossary-saved');
+  try {
+    await fetch('/api/glossary', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ terms }),
+    });
+    msg.textContent = `已导入 ${n} 个新词`;
+    setTimeout(() => { msg.textContent = ''; }, 3000);
+  } catch(e) { msg.textContent = '保存失败'; }
+}
+
+async function testConnection() {
+  const btn = document.getElementById('test-btn');
+  const out = document.getElementById('test-result');
+  btn.disabled = true; btn.textContent = '测试中';
+  out.textContent = '';
+  try {
+    const resp = await fetch('/api/test-connection', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        memos_url: document.querySelector('[name=memos_url]').value,
+        memos_token: document.querySelector('[name=memos_token]').value,
+        llm_url: document.getElementById('llm_url').value,
+        llm_api_key: document.getElementById('llm_api_key').value,
+      }),
+    });
+    const data = await resp.json();
+    const r = data.results;
+    const fmt = (name, x) => x.ok ? `${name} ✓` : `${name} ✗ ${x.error}`;
+    out.textContent = fmt('Memos', r.memos) + '　' + fmt('LLM', r.llm)
+      + (r.llm.ok ? `（${r.llm.models} 个模型）` : '');
+    out.style.color = (r.memos.ok && r.llm.ok) ? '#2e7d52' : '#c0392b';
+  } catch (e) {
+    out.textContent = '请求失败：' + e.message;
+    out.style.color = '#c0392b';
+  }
+  btn.disabled = false; btn.textContent = '测试连接';
+}
 
 async function fetchModels() {
   const btn = document.getElementById('models-btn');

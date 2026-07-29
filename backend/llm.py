@@ -218,25 +218,4 @@ async def classify_memo(
         return {"type": "other", "entries": [], "tags": [], "terms": []}
 
 
-async def suggest_glossary(
-    texts: str,
-    current_glossary: str,
-    url: str,
-    api_key: str,
-    model: str,
-) -> list[str]:
-    """从历史日记文本中提取专有名词，排除已在词表中的，返回候选列表。"""
-    prompt = (
-        "以下是一些日记片段。请从中提取反复出现或重要的专有名词"
-        "（人名、地名、公司/产品名、固定称呼等），用于语音输入的错字校正词表。\n"
-        "不要提取普通名词和日常词汇。只输出一个 JSON 数组，如 [\"张三\", \"星巴克\"]，不要其他内容。\n"
-    )
-    if current_glossary.strip():
-        prompt += f"\n以下词已在词表中，不要重复提取：\n{current_glossary.strip()}\n"
-    prompt += f"\n日记片段：\n{texts}"
-    reply = await _chat([{"role": "user", "content": prompt}], url, api_key, model)
-    try:
-        terms = json.loads(_strip_fences(reply))
-        return [str(t).strip() for t in terms if str(t).strip()] if isinstance(terms, list) else []
-    except json.JSONDecodeError:
-        return []
+
