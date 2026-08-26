@@ -16,7 +16,7 @@
   .card { background: white; border-radius: 16px; padding: 20px; width: 100%; max-width: 520px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
   .field-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
   .field-head label { margin-bottom: 0; }
-  .weekday-badge { font-size: 0.82rem; color: #3a6fd0; background: #eef4ff; padding: 2px 8px; border-radius: 6px; font-weight: 500; }
+  .weekday-badge { font-size: 0.8rem; color: #4a70c0; background: #edf2fc; padding: 2px 8px; border-radius: 6px; font-weight: 500; }
   label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 6px; }
   input[type="date"] { width: 100%; padding: 10px 12px; border: 1px solid #e0e0e0; border-radius: 10px; font-size: 16px; margin-bottom: 14px; outline: none; background: white; }
   input[type="date"]:focus { border-color: #4f8ef7; }
@@ -121,13 +121,7 @@ function markChipDone(date) {
   if (!date) return;
   completedDates.add(date);
   const chip = document.querySelector(`.chip[data-date="${date}"]`);
-  if (chip) {
-    chip.classList.add('done');
-    if (!chip.dataset.done) {
-      chip.dataset.done = '1';
-      chip.textContent = '✓ ' + chip.textContent.replace(/^✓\s*/, '');
-    }
-  }
+  if (chip) chip.classList.add('done');
   updateStatusSummary();
 }
 
@@ -185,9 +179,7 @@ async function loadStatus() {
     if (missing.length) {
       html += '<div class="chips">' + missing.map(d => {
         const isDone = completedDates.has(d);
-        const weekday = getWeekdayStr(d);
-        const label = `${d.slice(5).replace('-', '/')} ${weekday}`;
-        return `<span class="chip ${isDone ? 'done' : ''}" data-date="${d}" ${isDone ? 'data-done="1"' : ''} onclick="pickDate(this)">${isDone ? '✓ ' : ''}${label}</span>`;
+        return `<span class="chip ${isDone ? 'done' : ''}" data-date="${d}" onclick="pickDate(this)">${d.slice(5).replace('-', '/')}</span>`;
       }).join('') + '</div>';
     }
     bar.innerHTML = html;
