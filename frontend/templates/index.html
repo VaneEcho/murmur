@@ -14,6 +14,9 @@
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f8f9fa; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 24px 16px; }
   h1 { font-size: 1.4rem; font-weight: 600; color: #1a1a1a; margin-bottom: 16px; }
   .card { background: white; border-radius: 16px; padding: 20px; width: 100%; max-width: 520px; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+  .field-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .field-head label { margin-bottom: 0; }
+  .weekday-badge { font-size: 0.82rem; color: #3a6fd0; background: #eef4ff; padding: 2px 8px; border-radius: 6px; font-weight: 500; }
   label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 6px; }
   input[type="date"] { width: 100%; padding: 10px 12px; border: 1px solid #e0e0e0; border-radius: 10px; font-size: 16px; margin-bottom: 14px; outline: none; background: white; }
   input[type="date"]:focus { border-color: #4f8ef7; }
@@ -30,8 +33,12 @@
   .nav a:hover { color: #4f8ef7; }
   #statusbar { width: 100%; max-width: 520px; margin-bottom: 12px; font-size: 0.85rem; color: #777; }
   #statusbar .chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
-  .chip { padding: 6px 12px; border-radius: 999px; background: #fff3e0; color: #b06a00; font-size: 0.85rem; cursor: pointer; user-select: none; }
+  .chip { padding: 6px 12px; border-radius: 999px; background: #fff3e0; color: #b06a00; font-size: 0.85rem; cursor: pointer; user-select: none; transition: background 0.2s, color 0.2s; }
+  .chip:hover { background: #ffe0b2; }
   .chip.active { background: #4f8ef7; color: white; }
+  .chip.done { background: #edf7f0; color: #2e7d52; }
+  .chip.done:hover { background: #dcf2e3; }
+  .chip.done.active { background: #2e7d52; color: white; }
   #draftbar { width: 100%; max-width: 520px; margin-bottom: 12px; display: none; }
   .draft { background: #fffbe8; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; font-size: 0.85rem; color: #7a6520; display: flex; align-items: center; gap: 8px; }
   .draft .text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
@@ -55,8 +62,11 @@
 <div id="statusbar"></div>
 <div id="draftbar"></div>
 <div class="card">
-  <label for="date">日期</label>
-  <input type="date" id="date" value="{{ today }}">
+  <div class="field-head">
+    <label for="date">日期</label>
+    <span id="weekday-badge" class="weekday-badge"></span>
+  </div>
+  <input type="date" id="date" value="{{ today }}" oninput="onDateInput()" onchange="onDateInput()">
   <label for="content">内容</label>
   <textarea id="content"></textarea>
   <button id="btn" onclick="submit()">发布</button>
@@ -65,6 +75,78 @@
 <div id="jobs"></div>
 <script>
 let pendingDraftId = null;
+const completedDates = new Set();
+let lastStatusData = null;
+
+const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+function getWeekdayStr(dateStr) {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return '';
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10) - 1;
+  const d = parseInt(parts[2], 10);
+  const dt = new Date(y, m, d);
+  if (isNaN(dt.getTime())) return '';
+  return WEEKDAYS[dt.getDay()];
+}
+
+function updateDateWeekday() {
+  const val = document.getElementById('date').value;
+  const badge = document.getElementById('weekday-badge');
+  if (!badge) return;
+  if (!val) { badge.style.display = 'none'; return; }
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const weekday = getWeekdayStr(val);
+  if (val === todayStr) {
+    badge.textContent = `今天 · ${weekday}`;
+  } else {
+    badge.textContent = weekday;
+  }
+  badge.style.display = weekday ? 'inline-block' : 'none';
+}
+
+function onDateInput() {
+  updateDateWeekday();
+  const val = document.getElementById('date').value;
+  document.querySelectorAll('.chip').forEach(c => {
+    if (c.dataset.date === val) c.classList.add('active');
+    else c.classList.remove('active');
+  });
+}
+
+function markChipDone(date) {
+  if (!date) return;
+  completedDates.add(date);
+  const chip = document.querySelector(`.chip[data-date="${date}"]`);
+  if (chip) {
+    chip.classList.add('done');
+    if (!chip.dataset.done) {
+      chip.dataset.done = '1';
+      chip.textContent = '✓ ' + chip.textContent.replace(/^✓\s*/, '');
+    }
+  }
+  updateStatusSummary();
+}
+
+function updateStatusSummary() {
+  if (!lastStatusData) return;
+  const summaryEl = document.getElementById('status-summary');
+  if (!summaryEl) return;
+  const missing = lastStatusData.missing_days.filter(d => d !== lastStatusData.today);
+  const remaining = missing.filter(d => !completedDates.has(d)).length;
+  let text = lastStatusData.last_date ? `上次记录 ${lastStatusData.last_date}` : '暂无记录';
+  if (missing.length > 0) {
+    if (remaining > 0) {
+      text += `　缺 ${remaining} 天`;
+    } else {
+      text += '　已全部补齐';
+    }
+  }
+  summaryEl.textContent = text;
+}
 
 // WebSocket 实时接收任务状态，替代轮询；断线自动重连
 function connectWs() {
@@ -83,16 +165,33 @@ async function loadStatus() {
     const resp = await fetch('/api/status');
     const data = await resp.json();
     if (!data.ok) { bar.textContent = data.error || ''; return; }
-    let html = data.last_date ? `上次记录 ${data.last_date}` : '暂无记录';
+
+    const chipsContainer = bar.querySelector('.chips');
+    if (chipsContainer && lastStatusData) {
+      const currentMissing = new Set(data.missing_days);
+      lastStatusData.missing_days.forEach(d => {
+        if (!currentMissing.has(d)) {
+          markChipDone(d);
+        }
+      });
+      lastStatusData.last_date = data.last_date;
+      updateStatusSummary();
+      return;
+    }
+
+    lastStatusData = data;
     const missing = data.missing_days.filter(d => d !== data.today);
+    let html = `<span id="status-summary">${data.last_date ? `上次记录 ${data.last_date}` : '暂无记录'}${missing.length ? `　缺 ${missing.length} 天` : ''}</span>`;
     if (missing.length) {
-      html += `　缺 ${missing.length} 天`;
-      html += '<div class="chips">' + missing.map(d =>
-        `<span class="chip" data-date="${d}" onclick="pickDate(this)">${d.slice(5).replace('-', '/')}</span>`
-      ).join('') + '</div>';
+      html += '<div class="chips">' + missing.map(d => {
+        const isDone = completedDates.has(d);
+        const weekday = getWeekdayStr(d);
+        const label = `${d.slice(5).replace('-', '/')} ${weekday}`;
+        return `<span class="chip ${isDone ? 'done' : ''}" data-date="${d}" ${isDone ? 'data-done="1"' : ''} onclick="pickDate(this)">${isDone ? '✓ ' : ''}${label}</span>`;
+      }).join('') + '</div>';
     }
     bar.innerHTML = html;
-  } catch (e) { bar.textContent = ''; }
+  } catch (e) { if (!bar.querySelector('.chips')) bar.textContent = ''; }
 }
 
 async function loadDrafts() {
@@ -116,6 +215,7 @@ function escapeAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').r
 function restoreDraft(id, el) {
   document.getElementById('content').value = el.dataset.content;
   document.getElementById('date').value = el.dataset.date;
+  onDateInput();
   pendingDraftId = id;
   showResult('success', '已恢复，发布成功后自动清除');
   window.scrollTo(0, 0);
@@ -134,6 +234,7 @@ function pickDate(el) {
   document.getElementById('date').value = el.dataset.date;
   document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
+  updateDateWeekday();
   document.getElementById('content').focus();
 }
 
@@ -152,6 +253,7 @@ async function submit() {
     if (data.ok) {
       document.getElementById('content').value = '';
       if (pendingDraftId) { deleteDraft(pendingDraftId); pendingDraftId = null; }
+      markChipDone(date);
       showResult('success', '已提交');
     } else {
       showResult('error', data.error || '未知错误');
@@ -164,6 +266,13 @@ function renderJobs(jobs) {
   const box = document.getElementById('jobs');
   if (!jobs.length) { box.innerHTML = ''; return; }
   const open = new Set([...document.querySelectorAll('.job.open')].map(el => el.dataset.id));
+  jobs.forEach(j => {
+    if (j.status === 'done' && Array.isArray(j.result)) {
+      j.result.forEach(r => {
+        if (r.date) markChipDone(r.date);
+      });
+    }
+  });
   box.innerHTML = jobs.map(j => {
     let st, cls, detail = '';
     if (j.status === 'pending' || j.status === 'processing') {
@@ -198,6 +307,7 @@ function showResult(type, msg) {
 loadStatus();
 loadDrafts();
 connectWs();
+updateDateWeekday();
 </script>
 </body>
 </html>
